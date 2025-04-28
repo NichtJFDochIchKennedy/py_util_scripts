@@ -16,6 +16,7 @@ Checks all .py files in given directories recursively (excludes `venv` and `test
 Script options:
 - -f List of files to ignore.
 - -n List of function names to ignore.
+- -v To show warnings
 
 Example usage:
 
@@ -51,3 +52,7 @@ Useful for getting a quick overview of project size and structure.
 
 - Python 3.8+
 - No external dependencies
+
+## TODO
+
+Check out the [TODO.md](TODO.md) file for the current roadmap and missing features.

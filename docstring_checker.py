@@ -62,13 +62,13 @@ def extract_return_from_function(function):
 def extract_return_from_docstring(docstring):
     if not docstring:
         return None
-    matches = search(r"Returns:\s*\n\s*([^\s:]+)", docstring)
+    matches = search(r"Returns:\s*\n\s*([^:]+)", docstring)
     if matches:
         return matches.group(1)
     return None
 
 
-def check_function(function):
+def check_function(function, verbose):
     mismatches = []
     # Argument type check
     args_info = get_function_args_with_defaults(function)
@@ -78,21 +78,29 @@ def check_function(function):
         type_hint = info["type"]
         default = info["default"]
         doc_type = doc_args.get(name)
-        if doc_type is None and name != "self":
-            mismatches.append(f"Argument '{name}' not in docstring.")
-        else:
-            expected_doc_type = f"{type_hint}, optional" if default is not None else type_hint
-            if type_hint and not (doc_type == type_hint or doc_type == expected_doc_type):
-                mismatches.append(f"TypeMismatch '{name}': function '{type_hint}', docstring '{doc_type}'.")
-            if default is not None and "optional" not in doc_type:
-                mismatches.append(f"Argument '{name}' has a default value, but 'optional' is missing in the docstring.")
-            if default is None and doc_type and "optional" in doc_type:
-                mismatches.append(f"Argument '{name}' has NO default value, but the docstring contains 'optional'.")
+        if name != "self":
+            if type_hint and doc_type is None:
+                    mismatches.append(f"Argument '{name}' not in docstring.")
+            else:
+                expected_doc_type = f"{type_hint}, optional" if default is not None else type_hint
+                if not type_hint:
+                    if doc_type:
+                        mismatches.append(f"Argument '{name}' has no type, but docstring has '{doc_type}'.")
+                    else:
+                        if verbose:
+                            mismatches.append(f"Warning argument '{name}' has no type.")
+                if type_hint and not (doc_type == type_hint or doc_type == expected_doc_type):
+                    mismatches.append(f"Argument TypeMismatch '{name}':\n{' ' * 12}function: '{type_hint}'\n{' ' * 12}docstring: '{doc_type}'")
+                if default is not None and "optional" not in doc_type:
+                    mismatches.append(f"Argument '{name}' has a default value, but 'optional' is missing in the docstring.")
+                if default is None and doc_type and "optional" in doc_type:
+                    mismatches.append(f"Argument '{name}' has NO default value, but the docstring contains 'optional'.")
     # Return type check
     func_return = extract_return_from_function(function)
     doc_return = extract_return_from_docstring(docstring)
     if func_return and doc_return and func_return != doc_return:
-        mismatches.append(f"Return TypeMismatch: function '{func_return}', docstring '{doc_return}'.")
+        mismatches.append(f"Return TypeMismatch:\n{' ' * 12}function:  '{func_return}'\n{' ' * 12}docstring: '{doc_return}'")
+        print(doc_return)
     elif func_return and not doc_return and func_return != "None":
         mismatches.append(f"Return-type '{func_return}' not in docstring.")
     elif doc_return and not func_return:
@@ -104,7 +112,8 @@ def main():
     parser = ArgumentParser(description = "Compares names and types in docstrings with function params.")
     parser.add_argument("paths", nargs="+", type=Path, help="Paths to directories or files to check docstrings.")
     parser.add_argument("-f", "--files", nargs="+", help="List of files to ignore, like: file1.py file2.py")
-    parser.add_argument("-n", "--names", nargs="+", help="List of function names to ignore, like: func1 func2") 
+    parser.add_argument("-n", "--names", nargs="+", help="List of function names to ignore, like: func1 func2")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output.")
     args = parser.parse_args()
     if args.files is None:
         args.files = []
@@ -128,12 +137,12 @@ def main():
                         for func in functions:
                             if not func.name in args.names:
                                 total_functions += 1
-                                mismatches = check_function(func)
+                                mismatches = check_function(func, args.verbose)
                                 if mismatches:
                                     if not file_path_printed:
                                         file_path_printed = True
                                         print(f"Checking file: {file_path}")
-                                    print(f"    Function '{func.name}' error:")
+                                    print(f"    Function '{func.name}':")
                                     for m in mismatches:
                                         total_mismatches += 1
                                         print(f"        - {m}")
