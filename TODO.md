@@ -20,4 +20,3 @@
 
 - Different counters for documentation and code
     - To compare doc to code ratio
-- .gitignore option for row_counter.py

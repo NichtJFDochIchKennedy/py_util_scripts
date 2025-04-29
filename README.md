@@ -28,7 +28,7 @@ Useful for maintaining consistent and reliable documentation across a Python pro
 
 ### 2. [row_counter.py](row_counter.py)
 
-Counts all lines in given directories recursively (excludes `venv`):
+Counts all lines in given directories recursively:
 
 - Outputs:
     - Code percentage
@@ -37,8 +37,11 @@ Counts all lines in given directories recursively (excludes `venv`):
     - Total code lines in all directories
 
 Script options:
-- -v Provides percentage and filled line to total line ratio for each file.
 - -e List of file extensions to count.
+- -f List of files to ignore.
+- -d List of directories to ignore.
+- -g Apply .gitignore to read files.
+- -v Provides percentage and filled line to total line ratio for each file.
 
 Example usage:
 
