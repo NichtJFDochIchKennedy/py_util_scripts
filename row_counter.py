@@ -1,4 +1,4 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from os import walk
 from os.path import isdir, join, exists, relpath
 from pathlib import Path
@@ -6,6 +6,15 @@ from pathspec import PathSpec
 
 
 def count_lines_in_file(file_path: str) -> tuple[int, int]:
+    """
+    Count lines of code in a file.
+
+    Args:
+        file_path (str): Path to the file.
+
+    Returns:
+        tuple[int, int]: Number of code lines and total lines in the file.
+    """
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
             code_lines = sum(1 for line in file if line.strip() != "")
@@ -14,10 +23,20 @@ def count_lines_in_file(file_path: str) -> tuple[int, int]:
         return code_lines, total_lines
     except Exception as e:
         print(f"Error while reading {file_path}: {e}")
-        return 0
+        return 0, 0
 
 
-def count_lines_in_directory(args, directory_path: str):
+def count_lines_in_directory(args: Namespace, directory_path: str) -> tuple[int, int, dict[str, list[int]]]:
+    """
+    Count lines of code in a directory and its subdirectories.
+
+    Args:
+        args (Namespace): Command line arguments.
+        directory_path (str): Path to the directory.
+
+    Returns:
+        tuple[int, int, dict[str, list[int]]]: Total code lines, total lines, and a dictionary with file paths as keys and a list of code lines and total lines as values.
+    """
     total_lines = 0
     total_code_lines = 0
     file_counts = {}
@@ -41,7 +60,16 @@ def count_lines_in_directory(args, directory_path: str):
     return total_code_lines, total_lines, file_counts
 
 
-def load_gitignore_spec(directory_path):
+def load_gitignore_spec(directory_path: str) -> PathSpec:
+    """
+    Load the .gitignore file from the specified directory and return a PathSpec object.
+
+    Args:
+        directory_path (str): Path to the directory.
+
+    Returns:
+        PathSpec: A PathSpec object representing the patterns in the .gitignore file.
+    """
     gitignore_path = join(directory_path, ".gitignore")
     if not exists(gitignore_path):
         return None
@@ -51,7 +79,7 @@ def load_gitignore_spec(directory_path):
     return PathSpec.from_lines("gitwildmatch", patterns)
 
 
-def main():
+def main() -> None:
     parser = ArgumentParser(description = "Count lines of code in Python files.")
     parser.add_argument("paths", nargs = "+", type = Path, help = "Paths to directories or files to count lines of code.")
     parser.add_argument("-e", "--ext", nargs = "+", help = "List of file extensions, like: py pyw")
