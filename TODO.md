@@ -2,9 +2,6 @@
 
 ## docstring_checker.py
 
-### Update:
-- Maybe change color scheme to the VSCode one
-
 ### Test:
 - 1 < Returns / No tuple in documented type
 
