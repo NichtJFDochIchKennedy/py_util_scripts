@@ -226,10 +226,13 @@ def check_function(function: FunctionDef, verbose: bool) -> list[str]:
 def main() -> None:
     parser = ArgumentParser(description = "Compares names and types in docstrings with function params.")
     parser.add_argument("paths", nargs="+", type=Path, help="Paths to directories or files to check docstrings.")
+    parser.add_argument("-d", "--dirs", nargs="+", help="List of directories to ignore, like: dir1 dir2")
     parser.add_argument("-f", "--files", nargs="+", help="List of files to ignore, like: file1.py file2.py")
     parser.add_argument("-n", "--names", nargs="+", help="List of function names to ignore, like: func1 func2")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output.")
     args = parser.parse_args()
+    if args.dirs is None:
+        args.dirs = []
     if args.files is None:
         args.files = []
     if args.names is None:
@@ -249,26 +252,30 @@ def main() -> None:
         directory = Path(directory).resolve()
         if isdir(directory):
             for root, _, files in walk(directory):
-                if "venv" in root or "test" in root:
-                    continue
-                for file in files:
-                    if file.endswith(".py") and not file in args.files:
-                        mismatches_boxes = []
-                        total_files += 1
-                        file_path = join(root, file)
-                        functions = get_functions_from_file(file_path)
-                        for function in functions:
-                            if not function.name in args.names:
-                                total_functions += 1
-                                mismatches = check_function(function, args.verbose)
-                                if mismatches:
-                                    mismatch_title = f"[base_color]Function [highlight_color]{function.name}[/highlight_color] [Line[second_highlight_color] {function.lineno}[/second_highlight_color]]:[/base_color]"
-                                    mismatches_text = "\n\n".join(f"    [base_color]-[/base_color] {mismatch}" for mismatch in mismatches)
-                                    total_mismatches += len(mismatches)
-                                    mismatches_boxes.append(Panel(mismatches_text, title=mismatch_title, border_style="yellow", title_align="left"))
-                        if mismatches_boxes:
-                            # FIXME: Some padding is needed. Maybe some more styling
-                            console.print(Panel(Group(*mismatches_boxes), title=f"[base_color]Checking file:[/base_color] [highlight_color]{file_path}[/highlight_color]"))
+                for dir in args.dirs:
+                    if dir in root.split("\\"):
+                        break
+                else:
+                    if "venv" in root or "test" in root:
+                        continue
+                    for file in files:
+                        if file.endswith(".py") and not file in args.files:
+                            mismatches_boxes = []
+                            total_files += 1
+                            file_path = join(root, file)
+                            functions = get_functions_from_file(file_path)
+                            for function in functions:
+                                if not function.name in args.names:
+                                    total_functions += 1
+                                    mismatches = check_function(function, args.verbose)
+                                    if mismatches:
+                                        mismatch_title = f"[base_color]Function [highlight_color]{function.name}[/highlight_color] [Line[second_highlight_color] {function.lineno}[/second_highlight_color]]:[/base_color]"
+                                        mismatches_text = "\n\n".join(f"    [base_color]-[/base_color] {mismatch}" for mismatch in mismatches)
+                                        total_mismatches += len(mismatches)
+                                        mismatches_boxes.append(Panel(mismatches_text, title=mismatch_title, border_style="yellow", title_align="left"))
+                            if mismatches_boxes:
+                                # FIXME: Some padding is needed. Maybe some more styling
+                                console.print(Panel(Group(*mismatches_boxes), title=f"[base_color]Checking file:[/base_color] [highlight_color]{file_path}[/highlight_color]"))
         else:
             console.print(f"[bold red]Invalid directory:[/bold red] [highlight_color]{directory}[/highlight_color]")
         console.print(f"[base_color]Stats for [highlight_color]{directory}[/highlight_color]:[/base_color]")
