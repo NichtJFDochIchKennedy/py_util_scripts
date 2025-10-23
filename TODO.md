@@ -20,10 +20,3 @@
 ### Add:
 
 - Check for spaces by searching for ` \n`
-
-## row_counter.py
-
-### Add:
-
-- Different counters for documentation and code
-    - To compare doc to code ratio

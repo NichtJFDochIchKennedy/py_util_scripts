@@ -1,11 +1,10 @@
 from argparse import ArgumentParser
-from ast import FunctionDef, parse, unparse, get_docstring, walk as ast_walk, Return
+from ast import FunctionDef, parse, unparse, get_docstring, walk as ast_walk, Return, AsyncFunctionDef
 from os import walk
 from os.path import isdir, join
 from pathlib import Path
 from re import search, match, DOTALL
 from rich.console import Console, Group
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.theme import Theme
 
@@ -108,7 +107,7 @@ def get_functions_from_file(filepath: str) -> list:
     tree = parse(source)
     functions = []
     for node in ast_walk(tree):
-        if isinstance(node, FunctionDef):
+        if isinstance(node, (FunctionDef, AsyncFunctionDef)):
             functions.append(node)
     return functions
 
@@ -123,8 +122,11 @@ def function_has_return_value(function: FunctionDef) -> bool:
     Returns:
         bool: True if the function has a return value, False otherwise.
     """
+    from ast import Yield
     for node in ast_walk(function):
         if isinstance(node, Return) and node.value is not None:
+            return True
+        if isinstance(node, Yield):
             return True
     return False
 
@@ -178,13 +180,24 @@ def check_function(function: FunctionDef, verbose: bool) -> list[str]:
     args_info = get_function_args_with_defaults(function)
     docstring = get_docstring(function)
     doc_args = extract_args_from_docstring(docstring)
+    # Docstring line ending check
+    if docstring:
+        for idx, line in enumerate(docstring.splitlines()):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped in ("Args:", "Returns:"):
+                if not stripped.endswith(":"):
+                    mismatches.append(f"[base_error_color]Docstring line {idx+1} should end with ':' ([highlight_error_color]{stripped}[/highlight_error_color])[/base_error_color]")
+            elif not stripped.endswith('.'):
+                mismatches.append(f"[base_error_color]Docstring line {idx+1} should end with '.' ([highlight_error_color]{stripped}[/highlight_error_color])[/base_error_color]")
     for name, info in args_info.items():
         type_hint = info["type"]
         default = info["default"]
         doc_type = doc_args.get(name)
         if name != "self":
             if type_hint and doc_type is None:
-                    mismatches.append(f"[base_error_color]Argument [highlight_error_color]{name}[/highlight_error_color] not in docstring.[/base_error_color]")
+                mismatches.append(f"[base_error_color]Argument [highlight_error_color]{name}[/highlight_error_color] not in docstring.[/base_error_color]")
             else:
                 expected_doc_type = f"{type_hint}, optional" if default is not None else type_hint
                 if not type_hint:
@@ -201,30 +214,40 @@ def check_function(function: FunctionDef, verbose: bool) -> list[str]:
                     elif default is None and doc_type and "optional" in doc_type:
                         mismatches.append(f"[base_error_color]Argument [highlight_error_color]{name}[/highlight_error_color] has NO default value, but the docstring contains [highlight_error_color]optional[/highlight_error_color].[/base_error_color]")
                 else:
-                    mismatches.append(f"[base_error_color]Docstring not found.[/base_error_color]")
+                    mismatches.append("[base_error_color]Docstring not found.[/base_error_color]")
     # Return type check
     has_return = function_has_return_value(function)
     func_return = extract_return_from_function(function)
     doc_return = extract_return_from_docstring(docstring)
+    from ast import Yield
+    is_generator = any(isinstance(node, Yield) for node in ast_walk(function))
     if not func_return:
-        mismatches.append(f"[base_error_color]Function has no return type.[/base_error_color]")
-    elif has_return and func_return == "None":
-        mismatches.append(f"[base_error_color]Function has a return value, but no return type is specified.[/base_error_color]")
-    elif not has_return and func_return != "None":
-        mismatches.append(f"[base_error_color]Function has no return value, but the return type is [highlight_error_color]{func_return}[/highlight_error_color].[/base_error_color]")
-    elif func_return and doc_return and func_return != doc_return:
-        # 
-        print(str(func_return), doc_return)
-        mismatches.append(f"[base_error_color]Return TypeMismatch:\n{' ' * 8}function:  [highlight_error_color]{func_return}[/highlight_error_color]\n{' ' * 8}docstring: [highlight_error_color]{doc_return}[/highlight_error_color][/base_error_color]")
-    elif func_return and not doc_return and func_return != "None":
-        mismatches.append(f"[base_error_color]Return-type [highlight_error_color]{func_return}[/highlight_error_color] not in docstring.[/base_error_color]")
-    elif [arg.arg for arg in function.args.args if arg.arg != "self"] != extract_docstring_arg_order(docstring) and verbose:
+        mismatches.append("[base_error_color]Function has no return type.[/base_error_color]")
+    elif is_generator:
+        # Generator: Rückgabetyp sollte Iterator, Generator oder ähnliches sein
+        if func_return not in ("Iterator", "Generator", "Iterable") and not (func_return and func_return.startswith("Iterator")):
+            mismatches.append(f"[base_error_color]Function is a generator (uses yield), but return type is [highlight_error_color]{func_return}[/highlight_error_color].[/base_error_color]")
+        if doc_return and func_return != doc_return:
+            mismatches.append(f"[base_error_color]Return TypeMismatch:\n{' ' * 8}function:  [highlight_error_color]{func_return}[/highlight_error_color]\n{' ' * 8}docstring: [highlight_error_color]{doc_return}[/highlight_error_color][/base_error_color]")
+        elif not doc_return:
+            mismatches.append(f"[base_error_color]Generator return-type [highlight_error_color]{func_return}[/highlight_error_color] not in docstring.[/base_error_color]")
+    else:
+        if has_return and func_return == "None":
+            mismatches.append("[base_error_color]Function has a return value, but no return type is specified.[/base_error_color]")
+        elif not has_return and func_return != "None":
+            mismatches.append(f"[base_error_color]Function has no return value, but the return type is [highlight_error_color]{func_return}[/highlight_error_color].[/base_error_color]")
+        elif func_return and doc_return and func_return != doc_return:
+            print(str(func_return), doc_return)
+            mismatches.append(f"[base_error_color]Return TypeMismatch:\n{' ' * 8}function:  [highlight_error_color]{func_return}[/highlight_error_color]\n{' ' * 8}docstring: [highlight_error_color]{doc_return}[/highlight_error_color][/base_error_color]")
+        elif func_return and not doc_return and func_return != "None":
+            mismatches.append(f"[base_error_color]Return-type [highlight_error_color]{func_return}[/highlight_error_color] not in docstring.[/base_error_color]")
+    if [arg.arg for arg in function.args.args if arg.arg != "self"] != extract_docstring_arg_order(docstring) and verbose:
         mismatches.append(f"[base_error_color]Function arguments order does not match docstring arguments order:\n{' ' * 8}function:  [highlight_error_color]{[arg.arg for arg in function.args.args if arg.arg != 'self']}[/highlight_error_color]\n{' ' * 8}docstring: [highlight_error_color]{extract_docstring_arg_order(docstring)}[/highlight_error_color][/base_error_color]")
     return mismatches
 
 
 def main() -> None:
-    parser = ArgumentParser(description = "Compares names and types in docstrings with function params.")
+    parser = ArgumentParser(description="Compares names and types in docstrings with function params.")
     parser.add_argument("paths", nargs="+", type=Path, help="Paths to directories or files to check docstrings.")
     parser.add_argument("-d", "--dirs", nargs="+", help="List of directories to ignore, like: dir1 dir2")
     parser.add_argument("-f", "--files", nargs="+", help="List of files to ignore, like: file1.py file2.py")
@@ -259,13 +282,13 @@ def main() -> None:
                     if "venv" in root or "test" in root:
                         continue
                     for file in files:
-                        if file.endswith(".py") and not file in args.files:
+                        if file.endswith(".py") and file not in args.files:
                             mismatches_boxes = []
                             total_files += 1
                             file_path = join(root, file)
                             functions = get_functions_from_file(file_path)
                             for function in functions:
-                                if not function.name in args.names:
+                                if function.name not in args.names:
                                     total_functions += 1
                                     mismatches = check_function(function, args.verbose)
                                     if mismatches:
