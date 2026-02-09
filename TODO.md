@@ -6,7 +6,7 @@
 - 1 < Returns / No tuple in documented type
 
 ### FIX:
-- If return: list[str] and docstring: list[int] prints missmatcha as: list and list
+- If return: list[str] and docstring: list[int] prints mismatch as: list and list
 
 - If (Type) is missing in docstring the argument is reported missing
     - Change to print missing type

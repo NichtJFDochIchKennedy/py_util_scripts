@@ -189,7 +189,7 @@ def check_function(function: FunctionDef, verbose: bool) -> list[str]:
             if stripped in ("Args:", "Returns:"):
                 if not stripped.endswith(":"):
                     mismatches.append(f"[base_error_color]Docstring line {idx+1} should end with ':' ([highlight_error_color]{stripped}[/highlight_error_color])[/base_error_color]")
-            elif not stripped.endswith('.'):
+            elif not stripped.endswith('.') and not stripped.endswith(':') and not stripped.startswith("-"):
                 mismatches.append(f"[base_error_color]Docstring line {idx+1} should end with '.' ([highlight_error_color]{stripped}[/highlight_error_color])[/base_error_color]")
     for name, info in args_info.items():
         type_hint = info["type"]
@@ -209,8 +209,13 @@ def check_function(function: FunctionDef, verbose: bool) -> list[str]:
                 if doc_type:
                     if type_hint and not (doc_type == type_hint or doc_type == expected_doc_type):
                         mismatches.append(f"[base_error_color]Argument TypeMismatch [highlight_error_color]{name}[/highlight_error_color]:\n{' ' * 8}function: [highlight_error_color]{type_hint}[/highlight_error_color]\n{' ' * 8}docstring: [highlight_error_color]{doc_type}[/highlight_error_color][/base_error_color]")
+                    elif default is not None and "Optional[" in type_hint:
+                        if ", optional" in doc_type:
+                            mismatches.append(f"[base_error_color]Argument [highlight_error_color]{name}[/highlight_error_color] is already optional due to type hint, but docstring also contains [highlight_error_color]optional[/highlight_error_color].[/base_error_color]")
                     elif default is not None and "optional" not in doc_type:
                         mismatches.append(f"[base_error_color]Argument [highlight_error_color]{name}[/highlight_error_color] has a default value, but [highlight_error_color]optional[/highlight_error_color] is missing in the docstring.[/base_error_color]")
+                    elif default is None and doc_type and "Optional[" in doc_type:
+                        mismatches.append(f"[base_error_color]Argument [highlight_error_color]{name}[/highlight_error_color] has NO default value, but the docstring contains [highlight_error_color]Optional[][/highlight_error_color].[/base_error_color]")
                     elif default is None and doc_type and "optional" in doc_type:
                         mismatches.append(f"[base_error_color]Argument [highlight_error_color]{name}[/highlight_error_color] has NO default value, but the docstring contains [highlight_error_color]optional[/highlight_error_color].[/base_error_color]")
                 else:
