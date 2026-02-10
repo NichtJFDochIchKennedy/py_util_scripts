@@ -41,7 +41,7 @@ def count_lines_in_file(file_path: str) -> tuple[int, int]:
                         in_docstring = False
                     continue
                 # Kommentar detection
-                if stripped.startswith('#'):
+                if stripped.startswith("#"):
                     comment_lines += 1
                     continue
                 # Code line detection
@@ -62,7 +62,8 @@ def count_lines_in_directory(args: Namespace, directory_path: str) -> tuple[int,
         directory_path (str): Path to the directory.
 
     Returns:
-        tuple[int, int, dict[str, list[int]]]: Total code lines, total lines, and a dictionary with file paths as keys and a list of code lines and total lines as values.
+        tuple[int, int, dict[str, list[int]]]: Total code lines, total lines, and a dictionary with file paths as keys
+            and a list of code lines and total lines as values.
     """
     total_lines = 0
     total_code_lines = 0
@@ -132,7 +133,9 @@ def main() -> None:
     for directory in args.paths:
         directory = Path(directory).resolve()
         if isdir(directory):
-            directory_code_lines, directory_lines, directory_comment_lines, directory_docstring_lines, file_counts = count_lines_in_directory(args, directory)
+            directory_code_lines, directory_lines, directory_comment_lines, directory_docstring_lines, file_counts = (
+                count_lines_in_directory(args, directory)
+            )
             total_code_lines += directory_code_lines
             total_lines += directory_lines
             total_comment_lines += directory_comment_lines
@@ -144,8 +147,14 @@ def main() -> None:
                     if total == 0:
                         print(f"{file}: {code}/{total} (comments: {comment}, docstrings: {docstring})")
                     else:
-                        print(f"{file}: {code}/{total} lines => {code / total * 100:.2f}% (comments: {comment}, docstrings: {docstring})")
-                print(f"Total code lines in {directory}: {directory_code_lines}/{directory_lines} (comments: {directory_comment_lines}, docstrings: {directory_docstring_lines})\n")
+                        print(
+                            f"{file}: {code}/{total} lines => {code / total * 100:.2f}% (comments: {comment}",
+                            f", docstrings: {docstring})",
+                        )
+                print(
+                    f"Total code lines in {directory}: {directory_code_lines}/{directory_lines} (comments: ",
+                    f"{directory_comment_lines}, docstrings: {directory_docstring_lines})\n",
+                )
         else:
             print(f"Invalid directory: {directory}")
     empty_lines = total_lines - total_code_lines - total_comment_lines - total_docstring_lines
