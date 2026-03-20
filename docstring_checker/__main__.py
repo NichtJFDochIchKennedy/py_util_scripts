@@ -1,5 +1,6 @@
 """Main entry point for docstring checker."""
 
+import sys
 from argparse import ArgumentParser
 from pathlib import Path
 from os.path import isdir, join
@@ -8,8 +9,9 @@ from os import walk as os_walk
 from rich.console import Console, Group
 from rich.panel import Panel
 
-from config import SKIP_DIRS, CONSOLE_THEME
-from processor import process_file
+from .config import SKIP_DIRS, CONSOLE_THEME
+from .formatter import fix_file
+from .processor import process_file
 
 
 def should_skip_directory(root: str, skip_dirs: list[str]) -> bool:
@@ -47,10 +49,11 @@ def main() -> None:
     args.dirs = args.dirs or []
     args.files = args.files or []
     args.names = args.names or []
-    console = Console(theme=CONSOLE_THEME)
+    console = Console(theme=CONSOLE_THEME, force_terminal=True)
     total_files = 0
     total_functions = 0
     total_mismatches = 0
+    total_fixed = 0
     for directory in args.paths:
         directory = Path(directory).resolve()
         if not isdir(directory):
@@ -64,6 +67,11 @@ def main() -> None:
                     total_files += 1
                     file_path = join(root, file)
                     relative_path = Path(file_path).relative_to(directory)
+                    if fix_file(file_path):
+                        total_fixed += 1
+                        console.print(
+                            f"[base_color]Fixed:[/base_color] [highlight_color]{relative_path}[/highlight_color]"
+                        )
                     func_count, mismatch_count, mismatches_boxes = process_file(file_path, args.names, args.verbose)
                     total_functions += func_count
                     total_mismatches += mismatch_count
@@ -84,8 +92,14 @@ def main() -> None:
             f"functions.[/base_color]"
         )
         console.print(
+            f"    [base_color]Fixed docstring formatting in [second_highlight_color]{total_fixed}"
+            f"[/second_highlight_color] file(s).[/base_color]"
+        )
+        console.print(
             f"    [base_color]Found [bold red]{total_mismatches}[/bold red] " f"mismatches in docstrings.[/base_color]"
         )
+        sys.stderr.write(f"DOCCHECK_MISMATCHES:{total_mismatches}\n")
+        sys.stderr.flush()
 
 
 if __name__ == "__main__":

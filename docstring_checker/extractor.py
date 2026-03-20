@@ -52,7 +52,7 @@ def extract_args_from_docstring(docstring: str) -> dict[str, str]:
     Returns:
         dict[str, str]: Dictionary with argument names as keys and types as values.
     """
-    args = {}
+    args: dict[str, str] = {}
     if not docstring:
         return args
     args_section = search(r"Args:\s*(.*?)(\n\n|\Z)", docstring, DOTALL)
@@ -132,7 +132,7 @@ def extract_return_from_docstring(docstring: str) -> Optional[str]:
     return None
 
 
-def get_functions_from_file(filepath: str) -> list[FunctionDef | AsyncFunctionDef]:
+def get_functions_from_file(filepath: str) -> tuple[list[FunctionDef | AsyncFunctionDef], str]:
     """
     Parse a Python file and extract all function definitions.
 
@@ -140,7 +140,7 @@ def get_functions_from_file(filepath: str) -> list[FunctionDef | AsyncFunctionDe
         filepath (str): Path to the Python file.
 
     Returns:
-        list[FunctionDef | AsyncFunctionDef]: List of function definition nodes.
+        tuple[list[FunctionDef | AsyncFunctionDef], str]: List of function definition nodes and the source text.
     """
     with open(filepath, "r", encoding="utf-8") as f:
         source = f.read()
@@ -149,4 +149,4 @@ def get_functions_from_file(filepath: str) -> list[FunctionDef | AsyncFunctionDe
     for node in ast_walk(tree):
         if isinstance(node, (FunctionDef, AsyncFunctionDef)):
             functions.append(node)
-    return functions
+    return functions, source

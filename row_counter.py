@@ -5,7 +5,7 @@ from pathlib import Path
 from pathspec import PathSpec
 
 
-def count_lines_in_file(file_path: str) -> tuple[int, int]:
+def count_lines_in_file(file_path: str) -> tuple[int, int, int, int]:
     """
     Count lines of code in a file.
 
@@ -13,7 +13,7 @@ def count_lines_in_file(file_path: str) -> tuple[int, int]:
         file_path (str): Path to the file.
 
     Returns:
-        tuple[int, int]: Number of code lines and total lines in the file.
+        tuple[int, int, int, int]: Number of code lines, total lines, comment lines, and docstring lines.
     """
     try:
         total_lines = 0
@@ -26,11 +26,13 @@ def count_lines_in_file(file_path: str) -> tuple[int, int]:
             for line in file:
                 total_lines += 1
                 stripped = line.strip()
+
                 # Docstring detection
                 if not in_docstring and (stripped.startswith('"""') or stripped.startswith("'''")):
                     in_docstring = True
                     docstring_delim = stripped[:3]
                     docstring_lines += 1
+
                     # One-line docstring
                     if stripped.count(docstring_delim) == 2:
                         in_docstring = False
@@ -40,10 +42,12 @@ def count_lines_in_file(file_path: str) -> tuple[int, int]:
                     if docstring_delim and docstring_delim in stripped:
                         in_docstring = False
                     continue
+
                 # Kommentar detection
                 if stripped.startswith("#"):
                     comment_lines += 1
                     continue
+
                 # Code line detection
                 if stripped != "":
                     code_lines += 1
@@ -53,17 +57,19 @@ def count_lines_in_file(file_path: str) -> tuple[int, int]:
         return 0, 0, 0, 0
 
 
-def count_lines_in_directory(args: Namespace, directory_path: str) -> tuple[int, int, dict[str, list[int]]]:
+def count_lines_in_directory(
+    args: Namespace, directory_path: Path | str
+) -> tuple[int, int, int, int, dict[str, list[int]]]:
     """
     Count lines of code in a directory and its subdirectories.
 
     Args:
         args (Namespace): Command line arguments.
-        directory_path (str): Path to the directory.
+        directory_path (Path | str): Path to the directory.
 
     Returns:
-        tuple[int, int, dict[str, list[int]]]: Total code lines, total lines, and a dictionary with file paths as keys
-            and a list of code lines and total lines as values.
+        tuple[int, int, int, int, dict[str, list[int]]]: Total code lines, total lines, total comment lines,
+            total docstring lines, and a dictionary with file counts.
     """
     total_lines = 0
     total_code_lines = 0
@@ -92,15 +98,15 @@ def count_lines_in_directory(args: Namespace, directory_path: str) -> tuple[int,
     return total_code_lines, total_lines, total_comment_lines, total_docstring_lines, file_counts
 
 
-def load_gitignore_spec(directory_path: str) -> PathSpec:
+def load_gitignore_spec(directory_path: Path | str) -> PathSpec | None:
     """
     Load the .gitignore file from the specified directory and return a PathSpec object.
 
     Args:
-        directory_path (str): Path to the directory.
+        directory_path (Path | str): Path to the directory.
 
     Returns:
-        PathSpec: A PathSpec object representing the patterns in the .gitignore file.
+        PathSpec | None: A PathSpec object representing the patterns in the .gitignore file.
     """
     gitignore_path = join(directory_path, ".gitignore")
     if not exists(gitignore_path):

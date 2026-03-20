@@ -1,6 +1,25 @@
 """Utility functions for analyzing function properties."""
 
-from ast import FunctionDef, AsyncFunctionDef, walk as ast_walk, Return, Yield
+from ast import FunctionDef, AsyncFunctionDef, iter_child_nodes, Return, Yield
+from typing import Iterator
+from ast import AST
+
+
+def _walk_excluding_nested_functions(node: AST) -> Iterator[AST]:
+    """
+    Walk AST nodes, skipping the bodies of nested function definitions.
+
+    Args:
+        node (AST): The AST node to walk.
+
+    Returns:
+        Iterator[AST]: Each descendant node that is not inside a nested function.
+    """
+    for child in iter_child_nodes(node):
+        if isinstance(child, (FunctionDef, AsyncFunctionDef)):
+            continue
+        yield child
+        yield from _walk_excluding_nested_functions(child)
 
 
 def function_has_return_value(function: FunctionDef | AsyncFunctionDef) -> bool:
@@ -13,7 +32,7 @@ def function_has_return_value(function: FunctionDef | AsyncFunctionDef) -> bool:
     Returns:
         bool: True if the function has a return value, False otherwise.
     """
-    for node in ast_walk(function):
+    for node in _walk_excluding_nested_functions(function):
         if isinstance(node, Return) and node.value is not None:
             return True
         if isinstance(node, Yield):
@@ -31,4 +50,4 @@ def is_generator_function(function: FunctionDef | AsyncFunctionDef) -> bool:
     Returns:
         bool: True if the function is a generator, False otherwise.
     """
-    return any(isinstance(node, Yield) for node in ast_walk(function))
+    return any(isinstance(node, Yield) for node in _walk_excluding_nested_functions(function))

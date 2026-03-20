@@ -2,7 +2,7 @@
 
 from rich.theme import Theme
 
-SKIP_DIRS = {"venv", "test"}
+SKIP_DIRS = {"venv"}
 SELF_PARAMS = {"self", "cls"}
 GENERATOR_TYPES = {"Iterator", "Generator", "Iterable"}
 

@@ -10,5 +10,59 @@ exclude = '''
   | \.env
   | __pycache__
   | \.git
+  | dist
+  | build
 )/
 '''
+
+[tool.mypy]
+python_version = "3.10"
+# Pragmatic defaults - focus on catching real bugs
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+show_error_codes = true
+follow_imports = "normal"
+allow_untyped_calls = false
+allow_untyped_defs = false
+allow_incomplete_defs = false
+implicit_reexport = false
+
+[[tool.mypy.overrides]]
+module = [
+    "PySide6.*",
+    "requests.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+# Lenient for all GUI/threading code
+[[tool.mypy.overrides]]
+module = [
+    "source.threads",
+    "source.ui",
+    "source.dialogs",
+    "source.utils.gui_utils",
+]
+ignore_errors = true
+
+# Pragmatic for core logic (catch real issues, not style)
+[[tool.mypy.overrides]]
+module = [
+    "source.api",
+    "source.utils.config_manager",
+    "source.utils.models",
+    "source.utils.logger",
+    "source.utils.exceptions",
+    "source.utils.platform_config",
+    "source.utils.exp_table",
+]
+allow_untyped_calls = true
+allow_untyped_defs = true

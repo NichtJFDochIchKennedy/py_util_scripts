@@ -1,11 +1,10 @@
 """Validation checks for docstrings and function signatures."""
 
 from ast import FunctionDef, AsyncFunctionDef
-from typing import Optional
 
-from config import SELF_PARAMS, GENERATOR_TYPES
-from extractor import extract_docstring_arg_order
-from utils import function_has_return_value, is_generator_function
+from .config import SELF_PARAMS, GENERATOR_TYPES
+from .extractor import extract_docstring_arg_order
+from .utils import function_has_return_value, is_generator_function
 
 
 def _normalize_type(type_str: str) -> str:
@@ -21,6 +20,19 @@ def _normalize_type(type_str: str) -> str:
     return type_str.strip("\"'")
 
 
+def _normalize_for_comparison(type_str: str) -> str:
+    """
+    Normalize type string for comparison: strip quotes, lowercase, remove spaces.
+
+    Args:
+        type_str (str): The type string to normalize.
+
+    Returns:
+        str: The normalized type string for comparison.
+    """
+    return _normalize_type(type_str).lower().replace(" ", "")
+
+
 def check_docstring_line_endings(docstring: str) -> list[str]:
     """
     Check if docstring lines end with proper punctuation.
@@ -31,7 +43,7 @@ def check_docstring_line_endings(docstring: str) -> list[str]:
     Returns:
         list[str]: List of formatting errors found.
     """
-    mismatches = []
+    mismatches: list[str] = []
     if not docstring:
         return mismatches
     for idx, line in enumerate(docstring.splitlines()):
@@ -45,7 +57,12 @@ def check_docstring_line_endings(docstring: str) -> list[str]:
                     f"([highlight_error_color]{stripped}[/highlight_error_color])"
                     f"[/base_error_color]"
                 )
-        elif not stripped.endswith(".") and not stripped.endswith(":") and not stripped.startswith("-"):
+        elif (
+            not stripped.endswith(".")
+            and not stripped.endswith(":")
+            and not stripped.endswith(",")
+            and not stripped.startswith("-")
+        ):
             mismatches.append(
                 f"[base_error_color]Docstring line {idx + 1} should end with '.' "
                 f"([highlight_error_color]{stripped}[/highlight_error_color])"
@@ -86,10 +103,11 @@ def check_argument_documentation(
         expected_doc_type = f"{type_hint}, optional" if default else type_hint
         if not type_hint:
             if doc_type:
+                doc_type_escaped = doc_type.replace("[", r"\[").replace("]", r"\]")
                 mismatches.append(
                     f"[base_error_color]Argument [highlight_error_color]{name}"
                     f"[/highlight_error_color] has no type, but docstring has "
-                    f"[highlight_error_color]{doc_type}[/highlight_error_color]."
+                    f"[highlight_error_color]{doc_type_escaped}[/highlight_error_color]."
                     f"[/base_error_color]"
                 )
             elif verbose:
@@ -101,12 +119,17 @@ def check_argument_documentation(
         if not doc_type:
             mismatches.append("[base_error_color]Docstring not found.[/base_error_color]")
             continue
-        if not (doc_type == type_hint or doc_type == expected_doc_type):
+        if not (
+            _normalize_for_comparison(doc_type) == _normalize_for_comparison(type_hint)
+            or _normalize_for_comparison(doc_type) == _normalize_for_comparison(expected_doc_type)
+        ):
+            type_hint_escaped = type_hint.replace("[", r"\[").replace("]", r"\]")
+            doc_type_escaped = doc_type.replace("[", r"\[").replace("]", r"\]")
             mismatches.append(
                 f"[base_error_color]Argument TypeMismatch [highlight_error_color]{name}"
                 f"[/highlight_error_color]:\n{' ' * 8}function: "
-                f"[highlight_error_color]{type_hint}[/highlight_error_color]\n"
-                f"{' ' * 8}docstring: [highlight_error_color]{doc_type}"
+                f"[highlight_error_color]{type_hint_escaped}[/highlight_error_color]\n"
+                f"{' ' * 8}docstring: [highlight_error_color]{doc_type_escaped}"
                 f"[/highlight_error_color][/base_error_color]"
             )
         _check_optional_consistency(name, type_hint, default, doc_type, mismatches)
@@ -116,7 +139,7 @@ def check_argument_documentation(
 def _check_optional_consistency(
     name: str,
     type_hint: str,
-    default: Optional[str],
+    default: str,
     doc_type: str,
     mismatches: list[str],
 ) -> None:
@@ -126,7 +149,7 @@ def _check_optional_consistency(
     Args:
         name (str): The argument name.
         type_hint (str): The type hint from the function signature.
-        default (Optional[str]): The default value if present.
+        default (str): The default value if present.
         doc_type (str): The type from the docstring.
         mismatches (list[str]): List to append errors to.
     """
@@ -137,7 +160,7 @@ def _check_optional_consistency(
             f"but docstring also contains [highlight_error_color]optional"
             f"[/highlight_error_color].[/base_error_color]"
         )
-    elif default and "optional" not in doc_type:
+    elif default and "optional" not in doc_type and "Optional[" not in doc_type:
         mismatches.append(
             f"[base_error_color]Argument [highlight_error_color]{name}"
             f"[/highlight_error_color] has a default value, but "
@@ -162,7 +185,7 @@ def _check_optional_consistency(
 
 def _check_generator_return(
     func_return: str,
-    doc_return: Optional[str],
+    doc_return: str,
     mismatches: list[str],
 ) -> None:
     """
@@ -170,7 +193,7 @@ def _check_generator_return(
 
     Args:
         func_return (str): Return type from function signature.
-        doc_return (Optional[str]): Return type from docstring.
+        doc_return (str): Return type from docstring.
         mismatches (list[str]): List to append errors to.
     """
     is_valid_generator_type = func_return in GENERATOR_TYPES or (func_return and func_return.startswith("Iterator"))
@@ -180,11 +203,13 @@ def _check_generator_return(
             f"type is [highlight_error_color]{func_return}[/highlight_error_color]."
             f"[/base_error_color]"
         )
-    if doc_return and _normalize_type(func_return) != _normalize_type(doc_return):
+    if doc_return and _normalize_for_comparison(func_return) != _normalize_for_comparison(doc_return):
+        func_return_escaped = func_return.replace("[", r"\[").replace("]", r"\]")
+        doc_return_escaped = doc_return.replace("[", r"\[").replace("]", r"\]")
         mismatches.append(
             f"[base_error_color]Return TypeMismatch:\n{' ' * 8}function:  "
-            f"[highlight_error_color]{func_return}[/highlight_error_color]\n"
-            f"{' ' * 8}docstring: [highlight_error_color]{doc_return}"
+            f"[highlight_error_color]{func_return_escaped}[/highlight_error_color]\n"
+            f"{' ' * 8}docstring: [highlight_error_color]{doc_return_escaped}"
             f"[/highlight_error_color][/base_error_color]"
         )
     elif not doc_return:
@@ -198,7 +223,7 @@ def _check_generator_return(
 def _check_regular_return(
     has_return: bool,
     func_return: str,
-    doc_return: Optional[str],
+    doc_return: str,
     mismatches: list[str],
 ) -> None:
     """
@@ -207,7 +232,7 @@ def _check_regular_return(
     Args:
         has_return (bool): Whether the function has a return statement.
         func_return (str): Return type from function signature.
-        doc_return (Optional[str]): Return type from docstring.
+        doc_return (str): Return type from docstring.
         mismatches (list[str]): List to append errors to.
     """
     if has_return and func_return == "None":
@@ -220,7 +245,7 @@ def _check_regular_return(
             f"is [highlight_error_color]{func_return}[/highlight_error_color]."
             f"[/base_error_color]"
         )
-    elif func_return and doc_return and _normalize_type(func_return) != _normalize_type(doc_return):
+    elif func_return and doc_return and _normalize_for_comparison(func_return) != _normalize_for_comparison(doc_return):
         func_return_escaped = func_return.replace("[", r"\[").replace("]", r"\]")
         doc_return_escaped = doc_return.replace("[", r"\[").replace("]", r"\]")
         mismatches.append(
@@ -238,16 +263,16 @@ def _check_regular_return(
 
 def check_return_type(
     function: FunctionDef | AsyncFunctionDef,
-    func_return: Optional[str],
-    doc_return: Optional[str],
+    func_return: str,
+    doc_return: str,
 ) -> list[str]:
     """
     Check if function return type matches the docstring.
 
     Args:
         function (FunctionDef | AsyncFunctionDef): The function definition.
-        func_return (Optional[str]): Return type from function signature.
-        doc_return (Optional[str]): Return type from docstring.
+        func_return (str): Return type from function signature.
+        doc_return (str): Return type from docstring.
 
     Returns:
         list[str]: List of return type errors.
@@ -266,7 +291,7 @@ def check_return_type(
 
 def check_argument_order(
     function: FunctionDef | AsyncFunctionDef,
-    docstring: Optional[str],
+    docstring: str,
     verbose: bool,
 ) -> list[str]:
     """
@@ -274,13 +299,13 @@ def check_argument_order(
 
     Args:
         function (FunctionDef | AsyncFunctionDef): The function definition.
-        docstring (Optional[str]): The function's docstring.
+        docstring (str): The function's docstring.
         verbose (bool): Whether to report order mismatches.
 
     Returns:
         list[str]: List of order mismatch errors.
     """
-    mismatches = []
+    mismatches: list[str] = []
     if not verbose or not docstring:
         return mismatches
     func_args = [arg.arg for arg in function.args.args if arg.arg != "self"]

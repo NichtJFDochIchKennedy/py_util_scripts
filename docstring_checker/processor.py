@@ -1,15 +1,17 @@
 """File processing and output generation for docstring checker."""
 
+import ast
+import inspect
 from ast import get_docstring, FunctionDef, AsyncFunctionDef
 
-from extractor import (
+from .extractor import (
     get_function_args_with_defaults,
     extract_args_from_docstring,
     extract_return_from_function,
     extract_return_from_docstring,
     get_functions_from_file,
 )
-from checker import (
+from .checker import (
     check_docstring_line_endings,
     check_argument_documentation,
     check_return_type,
@@ -17,26 +19,56 @@ from checker import (
 )
 
 
-def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool) -> list[str]:
+def _get_raw_docstring(function: FunctionDef | AsyncFunctionDef, source: str) -> str | None:
+    """
+    Extract the raw docstring text from source, preserving escape sequences as literals.
+
+    Args:
+        function (FunctionDef | AsyncFunctionDef): The function definition node.
+        source (str): The full source code of the file.
+
+    Returns:
+        str | None: The cleaned raw docstring content, or None if not present.
+    """
+    if not function.body:
+        return None
+    first = function.body[0]
+    if not (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)):
+        return None
+    if not isinstance(first.value.value, str):
+        return None
+    raw_segment = ast.get_source_segment(source, first.value)
+    if raw_segment is None:
+        return None
+    for delim in ('"""', "'''"):
+        if raw_segment.startswith(delim) and raw_segment.endswith(delim) and len(raw_segment) >= len(delim) * 2:
+            return inspect.cleandoc(raw_segment[len(delim) : -len(delim)])
+    return None
+
+
+def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool, source: str = "") -> list[str]:
     """
     Check a function for mismatches between its signature and docstring.
 
     Args:
         function (FunctionDef | AsyncFunctionDef): The function definition node.
         verbose (bool): Whether to include verbose warnings.
+        source (str, optional): The full source text of the file.
+            Used to extract the raw docstring without interpreting escape sequences. Defaults to empty string.
 
     Returns:
         list[str]: List of mismatches found.
     """
     mismatches = []
     docstring = get_docstring(function)
-    mismatches.extend(check_docstring_line_endings(docstring))
+    raw_docstring = _get_raw_docstring(function, source) if source else docstring
+    mismatches.extend(check_docstring_line_endings(raw_docstring or ""))
     args_info = get_function_args_with_defaults(function)
-    doc_args = extract_args_from_docstring(docstring)
+    doc_args = extract_args_from_docstring(docstring or "")
     mismatches.extend(check_argument_documentation(args_info, doc_args, verbose))
     func_return = extract_return_from_function(function)
-    doc_return = extract_return_from_docstring(docstring)
-    mismatches.extend(check_return_type(function, func_return, doc_return))
+    doc_return = extract_return_from_docstring(docstring or "")
+    mismatches.extend(check_return_type(function, func_return or "", doc_return or ""))
     if docstring:
         mismatches.extend(check_argument_order(function, docstring, verbose))
     return mismatches
@@ -56,18 +88,18 @@ def process_file(
         verbose (bool): Whether to include verbose output.
 
     Returns:
-        tuple: (function_count, mismatch_count, list of mismatch panels)
+        tuple[int, int, list]: function_count, mismatch_count, list of mismatch panels.
     """
     from rich.panel import Panel
 
-    functions = get_functions_from_file(file_path)
+    functions, source = get_functions_from_file(file_path)
     mismatches_boxes = []
     total_functions = 0
     total_mismatches = 0
     for function in functions:
         if function.name not in ignore_names:
             total_functions += 1
-            mismatches = check_function(function, verbose)
+            mismatches = check_function(function, verbose, source)
             if mismatches:
                 mismatch_title = (
                     f"[base_color]Function [highlight_color]{function.name}"
