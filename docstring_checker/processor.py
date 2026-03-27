@@ -47,6 +47,15 @@ def _get_raw_docstring(function: FunctionDef | AsyncFunctionDef, source: str) ->
     return None
 
 
+def _is_ellipsis_stub(function: FunctionDef | AsyncFunctionDef) -> bool:
+    body = function.body
+    if len(body) == 1 and isinstance(body[0], ast.Expr):
+        value = body[0].value
+        if isinstance(value, ast.Constant) and value.value is ...:
+            return True
+    return False
+
+
 def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool, source: str = "") -> list[str]:
     """
     Check a function for mismatches between its signature and docstring.
@@ -63,6 +72,8 @@ def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool, sour
     mismatches = []
     docstring = get_docstring(function)
     if not docstring:
+        if _is_ellipsis_stub(function):
+            return mismatches
         mismatches.append("[base_error_color]Function has no docstring.[/base_error_color]")
         return mismatches
     raw_docstring = _get_raw_docstring(function, source) if source else docstring

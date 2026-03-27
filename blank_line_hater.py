@@ -83,11 +83,8 @@ def get_docstring_end_index(node: FunctionDef | AsyncFunctionDef) -> int:
         int: The line number where the docstring ends, or the function start line if no docstring.
     """
     if has_docstring(node):
-        docstring_expr = node.body[0]
-        assert isinstance(docstring_expr, Expr) and isinstance(docstring_expr.value, Constant)
-        end = docstring_expr.value.end_lineno
-        assert end is not None
-        return end
+        docstring_const = node.body[0].value
+        return docstring_const.end_lineno
     return node.lineno - 1
 
 
@@ -197,13 +194,13 @@ def collect_container_ranges(node: AST) -> set[int]:
     for child in walk(node):
         if isinstance(child, (Dict, List, Set, Tuple)):
             if hasattr(child, "lineno") and hasattr(child, "end_lineno"):
-                if child.end_lineno is not None and child.lineno is not None and child.end_lineno > child.lineno:
+                if child.end_lineno > child.lineno:
                     for ln in range(child.lineno - 1, child.end_lineno):
                         ranges.add(ln)
     return ranges
 
 
-issues: defaultdict[str, list[dict[str, int | str | bool]]] = defaultdict(list)
+issues = defaultdict(list)
 
 for file_path in sorted(glob("**/*.py", recursive=True)):
     if "venv" in Path(file_path).parts or "__pycache__" in Path(file_path).parts or file_path.startswith("."):
@@ -215,8 +212,7 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
         for node in walk(tree):
             if isinstance(node, (FunctionDef, AsyncFunctionDef)):
                 start = node.lineno - 1
-                assert node.end_lineno is not None
-                end: int = node.end_lineno
+                end = node.end_lineno
                 docstring_end = get_docstring_end_index(node)
                 func_indent = get_indent_level(lines[start])
                 code_indent = func_indent + 4
@@ -234,20 +230,21 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                             import_indent = get_indent_level(lines[import_line_idx])
                             if import_indent == code_indent:
                                 imports_in_func[child.lineno] = (child, idx)
-                for walk_node in walk(node):
-                    if isinstance(walk_node, (Import, ImportFrom)):
-                        import_line_idx = walk_node.lineno - 1
-                        if import_line_idx < len(lines) and walk_node.lineno not in imports_in_func:
+                for child in walk(node):
+                    if isinstance(child, (Import, ImportFrom)):
+                        import_line_idx = child.lineno - 1
+                        if import_line_idx < len(lines) and child.lineno not in imports_in_func:
                             import_indent = get_indent_level(lines[import_line_idx])
                             if import_indent >= code_indent:
-                                imports_in_func[walk_node.lineno] = (walk_node, -1)
+                                imports_in_func[child.lineno] = (child, -1)
                 nested_body_lines = set()
-                for walk_node in walk(node):
-                    if walk_node is not node and isinstance(walk_node, (FunctionDef, AsyncFunctionDef)):
-                        assert walk_node.end_lineno is not None
-                        for ln in range(walk_node.lineno, walk_node.end_lineno + 1):
+                for child in walk(node):
+                    if child is not node and isinstance(child, (FunctionDef, AsyncFunctionDef)):
+                        for ln in range(child.lineno, child.end_lineno + 1):
                             nested_body_lines.add(ln)
                 container_lines = collect_container_ranges(node)
+                # Track end lines of multi-line imports for blank-line-after-import checks
+                import_end_lines = {node.end_lineno for node, _ in imports_in_func.values()}
                 i = docstring_end
                 last_was_import = False
                 while i < end:
@@ -277,7 +274,7 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                                     line_before -= 1
                                 if line_before >= docstring_end:
                                     line_before_num = line_before + 1
-                                    if line_before_num in imports_in_func:
+                                    if line_before_num in imports_in_func or line_before_num in import_end_lines:
                                         i = j
                                         continue
                             if j < end and len(lines[j].strip()) > 0:
@@ -355,6 +352,9 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                     if line_num in imports_in_func:
                         import_node, import_body_index = imports_in_func[line_num]
                         is_first_code_statement = import_body_index == first_code_index
+                        # Account for multi-line imports (e.g. from X import (\n ...\n))
+                        import_end_line = import_node.end_lineno  # 1-indexed last line
+                        import_end_idx = import_end_line - 1  # 0-indexed
                         line_before_import = i - 1
                         line_before_is_block = False
                         line_before_is_import = False
@@ -365,15 +365,17 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                             line_before_is_block = is_block_start(prev_line)
                             line_before_num = line_before_import + 1
                             line_before_is_import = line_before_num in imports_in_func
+                        # Check line after import end (not just i+1) for multi-line imports
+                        after_import_idx = import_end_idx + 1  # 0-indexed
+                        after_import_num = import_end_line + 1  # 1-indexed
                         if is_first_code_statement:
-                            if i + 1 < end:
-                                next_line_num = i + 2
-                                if next_line_num not in imports_in_func:
-                                    if i + 1 < end and lines[i + 1].strip() != "":
+                            if after_import_idx < end:
+                                if after_import_num not in imports_in_func:
+                                    if lines[after_import_idx].strip() != "":
                                         issues[file_path].append(
                                             {
                                                 "function": node.name,
-                                                "line": line_num,
+                                                "line": after_import_num,
                                                 "file": file_path,
                                                 "type": "must_add",
                                                 "reason": "Import needs empty line after",
@@ -381,14 +383,13 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                                             }
                                         )
                         elif line_before_is_block or line_before_is_import:
-                            if i + 1 < end:
-                                next_line_num = i + 2
-                                if next_line_num not in imports_in_func:
-                                    if i + 1 < end and lines[i + 1].strip() != "":
+                            if after_import_idx < end:
+                                if after_import_num not in imports_in_func:
+                                    if lines[after_import_idx].strip() != "":
                                         issues[file_path].append(
                                             {
                                                 "function": node.name,
-                                                "line": line_num,
+                                                "line": after_import_num,
                                                 "file": file_path,
                                                 "type": "must_add",
                                                 "reason": "Import needs empty line after",
@@ -396,14 +397,13 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                                             }
                                         )
                         else:
-                            if i + 1 < end:
-                                next_line_num = i + 2
-                                if next_line_num not in imports_in_func:
-                                    if i + 1 < end and lines[i + 1].strip() != "":
+                            if after_import_idx < end:
+                                if after_import_num not in imports_in_func:
+                                    if lines[after_import_idx].strip() != "":
                                         issues[file_path].append(
                                             {
                                                 "function": node.name,
-                                                "line": line_num,
+                                                "line": after_import_num,
                                                 "file": file_path,
                                                 "type": "must_add",
                                                 "reason": "Import needs empty line after",
@@ -422,6 +422,9 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                                     }
                                 )
                         last_was_import = True
+                        # Skip past multi-line import body
+                        if import_end_idx > i:
+                            i = import_end_idx
                     else:
                         last_was_import = False
                         # Rule 6: Ensure blank lines around comment blocks (skip inside containers)
@@ -517,9 +520,9 @@ if issues:
         total_remove = 0
         for file_path in sorted(must_remove.keys(), key=lambda x: Path(x).as_posix()):
             print(f"{Fore.CYAN}{file_path}{Style.RESET_ALL}")
-            for issue in sorted(must_remove[file_path], key=lambda x: int(x["line"])):
+            for issue in sorted(must_remove[file_path], key=lambda x: x["line"]):
                 func_type = f"{Fore.YELLOW}async {Style.RESET_ALL}" if issue["async"] else ""
-                file_abs = str(Path(str(issue["file"])).resolve())
+                file_abs = str(Path(issue["file"]).resolve())
                 powershell_cmd = f'code "{file_abs}:{issue["line"]}"'
                 print(
                     f"  {func_type}{Fore.GREEN}{issue['function']}(){Style.RESET_ALL} "
@@ -534,9 +537,9 @@ if issues:
         total_add = 0
         for file_path in sorted(must_add.keys(), key=lambda x: Path(x).as_posix()):
             print(f"{Fore.CYAN}{file_path}{Style.RESET_ALL}")
-            for issue in sorted(must_add[file_path], key=lambda x: int(x["line"])):
+            for issue in sorted(must_add[file_path], key=lambda x: x["line"]):
                 func_type = f"{Fore.YELLOW}async {Style.RESET_ALL}" if issue["async"] else ""
-                file_abs = str(Path(str(issue["file"])).resolve())
+                file_abs = str(Path(issue["file"]).resolve())
                 powershell_cmd = f'code "{file_abs}:{issue["line"]}"'
                 print(
                     f"  {func_type}{Fore.GREEN}{issue['function']}(){Style.RESET_ALL} "

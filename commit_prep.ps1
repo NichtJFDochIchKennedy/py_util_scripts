@@ -11,8 +11,38 @@ Write-Host ""
 $ErrorCount = 0
 $WarningCount = 0
 
-# 1. Code Formatting with Black
-Write-Host "[1/5] Running Black (Code Formatter)..." -ForegroundColor Yellow
+# 1. Import Sorting
+Write-Host "[1/6] Running Import Sorter..." -ForegroundColor Yellow
+try {
+    Push-Location $PSScriptRoot
+    $isOutput = python "$PSScriptRoot\..\py_util_scripts\import_sorter.py" --fix 2>&1
+    $isExitCode = $LASTEXITCODE
+    Pop-Location
+    foreach ($line in ($isOutput -split "`n")) {
+        if ($line -match '>>> code "(.+):(\d+)"') {
+            $isFile = $matches[1]
+            $isLine = $matches[2]
+            $isUri = "vscode://file/$isFile`:$isLine"
+            $esc = [char]27
+            Write-Host "    >>> $esc]8;;$isUri$esc\code $isFile`:$isLine$esc]8;;$esc\" -ForegroundColor Cyan
+        } else {
+            Write-Host $line
+        }
+    }
+    if ($isExitCode -ne 0) {
+        Write-Host "Import sorting failed" -ForegroundColor Red
+        $ErrorCount++
+    } else {
+        Write-Host "Imports are correctly sorted" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "Import sorter failed" -ForegroundColor Red
+    $ErrorCount++
+}
+Write-Host ""
+
+# 2. Code Formatting with Black
+Write-Host "[2/6] Running Black (Code Formatter)..." -ForegroundColor Yellow
 try {
     black . --check --quiet
     if ($LASTEXITCODE -ne 0) {
@@ -28,8 +58,8 @@ try {
 }
 Write-Host ""
 
-# 2. Linting with Flake8
-Write-Host "[2/5] Running Flake8 (Linter)..." -ForegroundColor Yellow
+# 3. Linting with Flake8
+Write-Host "[3/6] Running Flake8 (Linter)..." -ForegroundColor Yellow
 try {
     python -m flake8 .\
     if ($LASTEXITCODE -ne 0) {
@@ -44,8 +74,8 @@ try {
 }
 Write-Host ""
 
-# 3. Blank Line Check
-Write-Host "[3/5] Running Blank Line Hater (Style Check)..." -ForegroundColor Yellow
+# 4. Blank Line Check
+Write-Host "[4/6] Running Blank Line Hater (Style Check)..." -ForegroundColor Yellow
 try {
     Push-Location $PSScriptRoot
     $blsOutput = python "$PSScriptRoot\blank_line_hater.py" --fix 2>&1
@@ -74,8 +104,8 @@ try {
 }
 Write-Host ""
 
-# 4. Type Checking with MyPy
-Write-Host "[4/5] Running MyPy (Type Checker)..." -ForegroundColor Yellow
+# 5. Type Checking with MyPy
+Write-Host "[5/6] Running MyPy (Type Checker)..." -ForegroundColor Yellow
 try {
     python -m mypy .\
     if ($LASTEXITCODE -ne 0) {
@@ -90,8 +120,8 @@ try {
 }
 Write-Host ""
 
-# 5. Docstring Consistency Check
-Write-Host "[5/5] Running Docstring Checker..." -ForegroundColor Yellow
+# 6. Docstring Consistency Check
+Write-Host "[6/6] Running Docstring Checker..." -ForegroundColor Yellow
 try {
     $checkerScript = "$PSScriptRoot\check_docstrings.py"
     $checkerPython = "$PSScriptRoot\venv\Scripts\python.exe"

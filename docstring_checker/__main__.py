@@ -80,8 +80,12 @@ def main() -> None:
                     total_functions += func_count
                     total_mismatches += mismatch_count
                     if file_issues:
+                        f = ""
                         for issue in file_issues:
-                            all_issues.append({"file": str(relative_path), **issue})
+                            if f != str(relative_path):
+                                f = str(relative_path)
+                                all_issues.append({"file": f, "issues": []})
+                            all_issues[-1]["issues"].append(issue)
                     if mismatches_boxes:
                         console.print(
                             Panel(
@@ -111,7 +115,7 @@ def main() -> None:
         json_path = Path(args.json_output) / "docstring_issues.json"
         if all_issues:
             json_path.parent.mkdir(parents=True, exist_ok=True)
-            json_path.write_text(json.dumps(all_issues, indent=2, ensure_ascii=False), encoding="utf-8")
+            json_path.write_text(json.dumps(all_issues, indent=4, ensure_ascii=False), encoding="utf-8")
         elif json_path.exists():
             json_path.unlink()
         sys.stderr.write(f"DOCCHECK_MISMATCHES:{total_mismatches}\n")
