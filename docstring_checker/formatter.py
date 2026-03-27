@@ -41,6 +41,37 @@ def _collect_docstring_entries(tree: ast.AST, source: str) -> list[tuple[ast.Con
     return entries
 
 
+def _normalize_block_spacing(lines: list[str]) -> list[str]:
+    """
+    Normalize spacing between docstring blocks (description, Args, Returns).
+
+    Args:
+        lines (list[str]): The docstring content lines.
+
+    Returns:
+        list[str]: Lines with normalized spacing between blocks.
+    """
+    if not lines:
+        return lines
+
+    result: list[str] = []
+    i = 0
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped in ("Args:", "Returns:"):
+            while result and not result[-1].strip():
+                result.pop()
+            if result:
+                result.append("")
+            result.append(lines[i])
+        else:
+            result.append(lines[i])
+        i += 1
+    return result
+
+
 def _build_formatted_docstring(content: str, indent: str) -> str:
     """
     Build the correctly formatted docstring string (including triple-quotes).
@@ -54,8 +85,7 @@ def _build_formatted_docstring(content: str, indent: str) -> str:
     """
     lines = content.splitlines()
     lines = [line.rstrip() for line in lines]
-    while lines and not lines[0]:
-        lines.pop(0)
+    lines = _normalize_block_spacing(lines)
     while lines and not lines[-1]:
         lines.pop()
     if not lines:
@@ -99,6 +129,7 @@ def format_file_docstrings(source: str) -> str:
     replacements: list[tuple[int, int, str]] = []
     for const_node, content in entries:
         start_col = const_node.col_offset
+
         # Use ast.get_source_segment to correctly handle multi-byte characters
         # (AST col_offset/end_col_offset are UTF-8 byte offsets, not char offsets).
         segment = ast.get_source_segment(source, const_node)

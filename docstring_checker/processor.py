@@ -17,6 +17,7 @@ from .checker import (
     check_return_type,
     check_argument_order,
 )
+from .utils import strip_rich_tags
 
 
 def _get_raw_docstring(function: FunctionDef | AsyncFunctionDef, source: str) -> str | None:
@@ -61,6 +62,9 @@ def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool, sour
     """
     mismatches = []
     docstring = get_docstring(function)
+    if not docstring:
+        mismatches.append("[base_error_color]Function has no docstring.[/base_error_color]")
+        return mismatches
     raw_docstring = _get_raw_docstring(function, source) if source else docstring
     mismatches.extend(check_docstring_line_endings(raw_docstring or ""))
     args_info = get_function_args_with_defaults(function)
@@ -69,8 +73,7 @@ def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool, sour
     func_return = extract_return_from_function(function)
     doc_return = extract_return_from_docstring(docstring or "")
     mismatches.extend(check_return_type(function, func_return or "", doc_return or ""))
-    if docstring:
-        mismatches.extend(check_argument_order(function, docstring, verbose))
+    mismatches.extend(check_argument_order(function, docstring, verbose))
     return mismatches
 
 
@@ -78,7 +81,7 @@ def process_file(
     file_path: str,
     ignore_names: list[str],
     verbose: bool,
-) -> tuple[int, int, list]:
+) -> tuple[int, int, list, list[dict]]:
     """
     Process a single Python file for docstring mismatches.
 
@@ -88,12 +91,13 @@ def process_file(
         verbose (bool): Whether to include verbose output.
 
     Returns:
-        tuple[int, int, list]: function_count, mismatch_count, list of mismatch panels.
+        tuple[int, int, list, list[dict]]: function_count, mismatch_count, mismatch panels, structured issues.
     """
     from rich.panel import Panel
 
     functions, source = get_functions_from_file(file_path)
     mismatches_boxes = []
+    file_issues = []
     total_functions = 0
     total_mismatches = 0
     for function in functions:
@@ -116,4 +120,11 @@ def process_file(
                         title_align="left",
                     )
                 )
-    return total_functions, total_mismatches, mismatches_boxes
+                file_issues.append(
+                    {
+                        "function": function.name,
+                        "line": function.lineno,
+                        "issues": [strip_rich_tags(m) for m in mismatches],
+                    }
+                )
+    return total_functions, total_mismatches, mismatches_boxes, file_issues

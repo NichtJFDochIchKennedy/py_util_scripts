@@ -101,7 +101,7 @@ try {
         $env:PYTHONIOENCODING = "utf-8"
         $env:FORCE_COLOR = "1"
         $stderrFile = [System.IO.Path]::GetTempFileName()
-        Start-Process -FilePath $checkerPython -ArgumentList @("`"$checkerScript`"", "`"$PSScriptRoot`"") -RedirectStandardError $stderrFile -NoNewWindow -Wait
+        Start-Process -FilePath $checkerPython -ArgumentList @("`"$checkerScript`"", "`"$PSScriptRoot`"", "--json-output", "`"$PSScriptRoot`"") -RedirectStandardError $stderrFile -NoNewWindow -Wait
         $env:FORCE_COLOR = $null
         $env:PYTHONIOENCODING = $null
         $stderrContent = Get-Content $stderrFile -Raw -Encoding utf8

@@ -51,3 +51,20 @@ def is_generator_function(function: FunctionDef | AsyncFunctionDef) -> bool:
         bool: True if the function is a generator, False otherwise.
     """
     return any(isinstance(node, Yield) for node in _walk_excluding_nested_functions(function))
+
+
+def strip_rich_tags(text: str) -> str:
+    """
+    Remove Rich markup tags from text and unescape literal brackets.
+
+    Args:
+        text (str): Text containing Rich markup tags.
+
+    Returns:
+        str: Clean text without Rich markup.
+    """
+    from re import sub
+
+    text = sub(r"(?<!\\)\[/?[\w_ ]+\]", "", text)
+    text = text.replace("\\[", "[").replace("\\]", "]")
+    return text

@@ -118,6 +118,7 @@ def load_gitignore_spec(directory_path: Path | str) -> PathSpec | None:
 
 
 def main() -> None:
+    """Main entry point for the line counter."""
     parser = ArgumentParser(description="Count lines of code in Python files.")
     parser.add_argument("paths", nargs="+", type=Path, help="Paths to directories or files to count lines of code.")
     parser.add_argument("-e", "--ext", nargs="+", help="List of file extensions, like: py pyw")
