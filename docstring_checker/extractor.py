@@ -1,13 +1,7 @@
 """Extract information from function signatures and docstrings."""
 
-from ast import (
-    FunctionDef,
-    AsyncFunctionDef,
-    parse,
-    unparse,
-    walk as ast_walk,
-)
-from re import search, match, DOTALL
+from ast import AsyncFunctionDef, FunctionDef, parse, unparse, walk as ast_walk
+from re import DOTALL, match, search
 from typing import Optional
 
 

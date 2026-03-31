@@ -1,23 +1,24 @@
 import sys
 from ast import (
     AST,
-    parse,
-    walk,
-    FunctionDef,
     AsyncFunctionDef,
     Constant,
+    Dict,
     Expr,
+    FunctionDef,
     Import,
     ImportFrom,
-    Dict,
     List,
+    parse,
     Set,
     Tuple,
+    walk,
 )
-from glob import glob
 from collections import defaultdict
-from colorama import Fore, Style, init
+from glob import glob
 from pathlib import Path
+
+from colorama import Fore, init, Style
 
 init(autoreset=True)
 

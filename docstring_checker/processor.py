@@ -2,20 +2,22 @@
 
 import ast
 import inspect
-from ast import get_docstring, FunctionDef, AsyncFunctionDef
+from ast import AsyncFunctionDef, FunctionDef, get_docstring
 
-from .extractor import (
-    get_function_args_with_defaults,
-    extract_args_from_docstring,
-    extract_return_from_function,
-    extract_return_from_docstring,
-    get_functions_from_file,
-)
 from .checker import (
-    check_docstring_line_endings,
     check_argument_documentation,
-    check_return_type,
     check_argument_order,
+    check_docstring_indentation,
+    check_docstring_line_endings,
+    check_return_type,
+    check_tuple_breakdown,
+)
+from .extractor import (
+    extract_args_from_docstring,
+    extract_return_from_docstring,
+    extract_return_from_function,
+    get_function_args_with_defaults,
+    get_functions_from_file,
 )
 from .utils import strip_rich_tags
 
@@ -78,6 +80,8 @@ def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool, sour
         return mismatches
     raw_docstring = _get_raw_docstring(function, source) if source else docstring
     mismatches.extend(check_docstring_line_endings(raw_docstring or ""))
+    if source:
+        mismatches.extend(check_docstring_indentation(function, source))
     args_info = get_function_args_with_defaults(function)
     doc_args = extract_args_from_docstring(docstring or "")
     mismatches.extend(check_argument_documentation(args_info, doc_args, verbose))
@@ -85,6 +89,7 @@ def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool, sour
     doc_return = extract_return_from_docstring(docstring or "")
     mismatches.extend(check_return_type(function, func_return or "", doc_return or ""))
     mismatches.extend(check_argument_order(function, docstring, verbose))
+    mismatches.extend(check_tuple_breakdown(args_info, docstring or "", func_return or ""))
     return mismatches
 
 

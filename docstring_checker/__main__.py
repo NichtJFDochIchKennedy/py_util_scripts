@@ -2,14 +2,14 @@
 
 import sys
 from argparse import ArgumentParser
-from pathlib import Path
-from os.path import isdir, join
 from os import walk as os_walk
+from os.path import isdir, join
+from pathlib import Path
 
 from rich.console import Console, Group
 from rich.panel import Panel
 
-from .config import SKIP_DIRS, CONSOLE_THEME
+from .config import CONSOLE_THEME, SKIP_DIRS
 from .formatter import fix_file
 from .processor import process_file
 

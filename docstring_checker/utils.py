@@ -1,8 +1,7 @@
 """Utility functions for analyzing function properties."""
 
-from ast import FunctionDef, AsyncFunctionDef, iter_child_nodes, Return, Yield
+from ast import AST, AsyncFunctionDef, FunctionDef, iter_child_nodes, Return, Yield
 from typing import Iterator
-from ast import AST
 
 
 def _walk_excluding_nested_functions(node: AST) -> Iterator[AST]:

@@ -1,7 +1,8 @@
 from argparse import ArgumentParser, Namespace
 from os import walk
-from os.path import isdir, join, exists, relpath
+from os.path import exists, isdir, join, relpath
 from pathlib import Path
+
 from pathspec import PathSpec
 
 

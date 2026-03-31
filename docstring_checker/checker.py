@@ -1,8 +1,9 @@
 """Validation checks for docstrings and function signatures."""
 
-from ast import FunctionDef, AsyncFunctionDef
+from ast import AsyncFunctionDef, FunctionDef, get_docstring
+from re import DOTALL, findall, search
 
-from .config import SELF_PARAMS, GENERATOR_TYPES
+from .config import GENERATOR_TYPES, SELF_PARAMS
 from .extractor import extract_docstring_arg_order
 from .utils import function_has_return_value, is_generator_function
 
@@ -103,7 +104,7 @@ def check_argument_documentation(
         expected_doc_type = f"{type_hint}, optional" if default else type_hint
         if not type_hint:
             if doc_type:
-                doc_type_escaped = doc_type.replace("[", r"\[").replace("]", r"\]")
+                doc_type_escaped = doc_type.replace("[", r"\[")
                 mismatches.append(
                     f"[base_error_color]Argument [highlight_error_color]{name}"
                     f"[/highlight_error_color] has no type, but docstring has "
@@ -123,8 +124,8 @@ def check_argument_documentation(
             _normalize_for_comparison(doc_type) == _normalize_for_comparison(type_hint)
             or _normalize_for_comparison(doc_type) == _normalize_for_comparison(expected_doc_type)
         ):
-            type_hint_escaped = type_hint.replace("[", r"\[").replace("]", r"\]")
-            doc_type_escaped = doc_type.replace("[", r"\[").replace("]", r"\]")
+            type_hint_escaped = type_hint.replace("[", r"\[")
+            doc_type_escaped = doc_type.replace("[", r"\[")
             mismatches.append(
                 f"[base_error_color]Argument TypeMismatch [highlight_error_color]{name}"
                 f"[/highlight_error_color]:\n{' ' * 8}function: "
@@ -204,8 +205,8 @@ def _check_generator_return(
             f"[/base_error_color]"
         )
     if doc_return and _normalize_for_comparison(func_return) != _normalize_for_comparison(doc_return):
-        func_return_escaped = func_return.replace("[", r"\[").replace("]", r"\]")
-        doc_return_escaped = doc_return.replace("[", r"\[").replace("]", r"\]")
+        func_return_escaped = func_return.replace("[", r"\[")
+        doc_return_escaped = doc_return.replace("[", r"\[")
         mismatches.append(
             f"[base_error_color]Return TypeMismatch:\n{' ' * 8}function:  "
             f"[highlight_error_color]{func_return_escaped}[/highlight_error_color]\n"
@@ -246,8 +247,8 @@ def _check_regular_return(
             f"[/base_error_color]"
         )
     elif func_return and doc_return and _normalize_for_comparison(func_return) != _normalize_for_comparison(doc_return):
-        func_return_escaped = func_return.replace("[", r"\[").replace("]", r"\]")
-        doc_return_escaped = doc_return.replace("[", r"\[").replace("]", r"\]")
+        func_return_escaped = func_return.replace("[", r"\[")
+        doc_return_escaped = doc_return.replace("[", r"\[")
         mismatches.append(
             f"[base_error_color]Return TypeMismatch:\n{' ' * 8}function:  "
             f"[highlight_error_color]{func_return_escaped}[/highlight_error_color]\n"
@@ -318,4 +319,151 @@ def check_argument_order(
             f"{' ' * 8}docstring: [highlight_error_color]{doc_args}"
             f"[/highlight_error_color][/base_error_color]"
         )
+    return mismatches
+
+
+def check_docstring_indentation(
+    function: FunctionDef | AsyncFunctionDef,
+    source: str,
+) -> list[str]:
+    """
+    Check that the docstring indentation is consistent with the function body.
+
+    Args:
+        function (FunctionDef | AsyncFunctionDef): The function definition node.
+        source (str): The full source code of the file.
+
+    Returns:
+        list[str]: List of indentation errors found.
+    """
+    mismatches: list[str] = []
+    if not function.body:
+        return mismatches
+    first_stmt = function.body[0]
+    if not hasattr(first_stmt, "value") or not isinstance(getattr(first_stmt, "value", None), type(first_stmt)):
+        pass
+    docstring = get_docstring(function)
+    if not docstring:
+        return mismatches
+
+    source_lines = source.splitlines()
+    func_indent = function.col_offset
+    expected_indent = func_indent + 4
+
+    # Find the docstring lines in the source
+    ds_node = function.body[0]
+    ds_start = ds_node.lineno - 1
+    ds_end = (ds_node.end_lineno or ds_node.lineno) - 1
+
+    for line_idx in range(ds_start, min(ds_end + 1, len(source_lines))):
+        line = source_lines[line_idx]
+        if not line.strip():
+            continue
+        stripped = line.lstrip()
+        # Skip the triple-quote lines themselves
+        if stripped.startswith('"""') or stripped.startswith("'''"):
+            actual_indent = len(line) - len(stripped)
+            if actual_indent != expected_indent:
+                mismatches.append(
+                    f"[base_error_color]Docstring line {line_idx + 1} has "
+                    f"[highlight_error_color]{actual_indent}[/highlight_error_color] spaces indent, "
+                    f"expected [highlight_error_color]{expected_indent}[/highlight_error_color]."
+                    f"[/base_error_color]"
+                )
+            continue
+        actual_indent = len(line) - len(stripped)
+        if actual_indent < expected_indent:
+            mismatches.append(
+                f"[base_error_color]Docstring line {line_idx + 1} has "
+                f"[highlight_error_color]{actual_indent}[/highlight_error_color] spaces indent, "
+                f"expected at least [highlight_error_color]{expected_indent}[/highlight_error_color]."
+                f"[/base_error_color]"
+            )
+    return mismatches
+
+
+def check_tuple_breakdown(
+    args_info: dict[str, dict],
+    docstring: str,
+    func_return: str,
+) -> list[str]:
+    """
+    Check that tuple types in args and return are broken down in the docstring.
+
+    Args:
+        args_info (dict[str, dict]): Function arguments with type and default info.
+        docstring (str): The function's docstring.
+        func_return (str): Return type from function signature.
+
+    Returns:
+        list[str]: List of tuple breakdown errors found.
+    """
+    mismatches: list[str] = []
+    if not docstring:
+        return mismatches
+
+    def _count_tuple_elements(type_str: str) -> int:
+        """Count the number of elements in a tuple type annotation."""
+        m = search(r"tuple\[(.+)\]", type_str, DOTALL)
+        if not m:
+            return 0
+        inner = m.group(1)
+        # Simple comma split respecting bracket nesting
+        depth = 0
+        count = 1
+        for ch in inner:
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                count += 1
+        return count
+
+    def _check_breakdown_present(type_str: str, name: str, section: str) -> None:
+        """Verify that the docstring has sub-type lines for the tuple elements."""
+        normalized = type_str.lower().replace(" ", "")
+        if not normalized.startswith("tuple["):
+            return
+        num_elements = _count_tuple_elements(type_str)
+        if num_elements < 2:
+            return
+
+        # Look for the section in the docstring to check for sub-type breakdown lines
+        if section == "return":
+            sec_match = search(r"Returns:\s*\n\s*[^\n]+\n(.*?)(\n\n|\Z)", docstring, DOTALL)
+        else:
+            # For args, search after the arg line
+            pattern = rf"{name}\s*\([^)]*\):[^\n]*\n((?:\s+[^\s].*\n?)*)"
+            sec_match = search(pattern, docstring, DOTALL)
+
+        if sec_match:
+            breakdown_text = sec_match.group(1)
+            # Count sub-type lines (lines matching "type: description" pattern)
+            sub_lines = findall(r"^\s+\w[\w\[\], ]*:", breakdown_text, flags=8)  # MULTILINE=8
+            if len(sub_lines) >= num_elements:
+                return
+
+        type_escaped = type_str.replace("[", r"\[")
+        mismatches.append(
+            f"[base_error_color]{section.capitalize()} "
+            f"[highlight_error_color]{name if section == 'arg' else ''}"
+            f"[/highlight_error_color] has tuple type "
+            f"[highlight_error_color]{type_escaped}[/highlight_error_color] "
+            f"but the docstring does not break down all {num_elements} elements."
+            f"[/base_error_color]"
+        )
+
+    # Check arguments
+    for name, info in args_info.items():
+        if name in SELF_PARAMS:
+            continue
+        type_hint = info["type"]
+        if type_hint:
+            _check_breakdown_present(type_hint, name, "arg")
+
+    # Check return type
+    if func_return:
+        _check_breakdown_present(func_return, "", "return")
+
     return mismatches

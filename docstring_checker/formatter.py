@@ -3,6 +3,9 @@
 import ast
 import inspect
 from pathlib import Path
+from re import match as re_match
+
+LINE_LENGTH = 120
 
 
 def _collect_docstring_entries(tree: ast.AST, source: str) -> list[tuple[ast.Constant, str]]:
@@ -14,7 +17,7 @@ def _collect_docstring_entries(tree: ast.AST, source: str) -> list[tuple[ast.Con
         source (str): The original source code text.
 
     Returns:
-        list[tuple[ast.Constant, str]]: List of (constant node, clean content) pairs.
+    list[tuple[ast.Constant, str]]: List of (constant node, clean content) pairs.
     """
     entries: list[tuple[ast.Constant, str]] = []
     for node in ast.walk(tree):
@@ -72,6 +75,58 @@ def _normalize_block_spacing(lines: list[str]) -> list[str]:
     return result
 
 
+def _normalize_docstring_structure(lines: list[str], outer_indent: str) -> list[str]:
+    """
+    Normalize the indentation structure of docstring content.
+
+    Rules:
+    - Description text, ``Args:``, ``Returns:`` are at base level (outer_indent).
+    - Lines inside Args/Returns blocks are indented +4 from base.
+    - Continuation lines (long descriptions that wrap) are indented +8 from base.
+    - Further continuation lines stay at +8 (no additional indent).
+
+    Args:
+        lines (list[str]): The docstring content lines (from inspect.cleandoc, relative indent).
+        outer_indent (str): The base indentation string for the docstring body.
+
+    Returns:
+        list[str]: Lines with corrected indentation structure.
+    """
+    result: list[str] = []
+    base = outer_indent
+    section_indent = base + "    "
+    continuation_indent = base + "        "
+    in_section = False
+    is_param_line = False
+
+    # Pattern for parameter/type lines: "name (type): desc" or "type: desc" (incl. brackets)
+    param_pattern = r"\w[\w\[\], |]*\s*(\([^)]*\))?\s*:"
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            result.append("")
+            in_section = False
+            is_param_line = False
+            continue
+        if stripped in ("Args:", "Returns:", "Yields:", "Raises:", "Note:", "Notes:", "Attributes:", "Examples:"):
+            result.append(f"{base}{stripped}")
+            in_section = True
+            is_param_line = False
+            continue
+        if in_section:
+            if re_match(param_pattern, stripped):
+                result.append(f"{section_indent}{stripped}")
+                is_param_line = True
+                continue
+            if is_param_line:
+                result.append(f"{continuation_indent}{stripped}")
+                continue
+        result.append(f"{base}{stripped}")
+
+    return result
+
+
 def _build_formatted_docstring(content: str, indent: str) -> str:
     """
     Build the correctly formatted docstring string (including triple-quotes).
@@ -94,12 +149,7 @@ def _build_formatted_docstring(content: str, indent: str) -> str:
     if len(lines) == 1:
         return f'"""{lines[0]}"""'
 
-    body_lines = []
-    for line in lines:
-        if line:
-            body_lines.append(f"{indent}{line}")
-        else:
-            body_lines.append("")
+    body_lines = _normalize_docstring_structure(lines, indent)
     inner = "\n".join(body_lines)
     return f'"""\n{inner}\n{indent}"""'
 

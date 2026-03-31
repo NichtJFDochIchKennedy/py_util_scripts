@@ -15,7 +15,7 @@ $WarningCount = 0
 Write-Host "[1/6] Running Import Sorter..." -ForegroundColor Yellow
 try {
     Push-Location $PSScriptRoot
-    $isOutput = python "$PSScriptRoot\..\py_util_scripts\import_sorter.py" --fix 2>&1
+    $isOutput = python "$PSScriptRoot\import_sorter.py" --fix 2>&1
     $isExitCode = $LASTEXITCODE
     Pop-Location
     foreach ($line in ($isOutput -split "`n")) {
