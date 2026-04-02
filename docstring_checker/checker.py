@@ -354,12 +354,12 @@ def check_docstring_indentation(
     ds_node = function.body[0]
     ds_start = ds_node.lineno - 1
     ds_end = (ds_node.end_lineno or ds_node.lineno) - 1
-
     for line_idx in range(ds_start, min(ds_end + 1, len(source_lines))):
         line = source_lines[line_idx]
         if not line.strip():
             continue
         stripped = line.lstrip()
+
         # Skip the triple-quote lines themselves
         if stripped.startswith('"""') or stripped.startswith("'''"):
             actual_indent = len(line) - len(stripped)
@@ -403,11 +403,20 @@ def check_tuple_breakdown(
         return mismatches
 
     def _count_tuple_elements(type_str: str) -> int:
-        """Count the number of elements in a tuple type annotation."""
+        """
+        Count the number of elements in a tuple type annotation.
+
+        Args:
+            type_str (str): The tuple type string, e.g. "Tuple[int, string]".
+
+        Returns:
+            int: The number of elements in the tuple, or 0 if it's not a valid tuple type.
+        """
         m = search(r"tuple\[(.+)\]", type_str, DOTALL)
         if not m:
             return 0
         inner = m.group(1)
+
         # Simple comma split respecting bracket nesting
         depth = 0
         count = 1
@@ -421,7 +430,14 @@ def check_tuple_breakdown(
         return count
 
     def _check_breakdown_present(type_str: str, name: str, section: str) -> None:
-        """Verify that the docstring has sub-type lines for the tuple elements."""
+        """
+        Verify that the docstring has sub-type lines for the tuple elements.
+
+        Args:
+            type_str (str): The tuple type string to check.
+            name (str): The argument name (empty for return type).
+            section (str): "arg" for arguments, "return" for return type.
+        """
         normalized = type_str.lower().replace(" ", "")
         if not normalized.startswith("tuple["):
             return
@@ -436,11 +452,11 @@ def check_tuple_breakdown(
             # For args, search after the arg line
             pattern = rf"{name}\s*\([^)]*\):[^\n]*\n((?:\s+[^\s].*\n?)*)"
             sec_match = search(pattern, docstring, DOTALL)
-
         if sec_match:
             breakdown_text = sec_match.group(1)
+
             # Count sub-type lines (lines matching "type: description" pattern)
-            sub_lines = findall(r"^\s+\w[\w\[\], ]*:", breakdown_text, flags=8)  # MULTILINE=8
+            sub_lines = findall(r"^\s+\w[\w\[\], |]*:", breakdown_text, flags=8)  # MULTILINE=8
             if len(sub_lines) >= num_elements:
                 return
 
@@ -465,5 +481,4 @@ def check_tuple_breakdown(
     # Check return type
     if func_return:
         _check_breakdown_present(func_return, "", "return")
-
     return mismatches

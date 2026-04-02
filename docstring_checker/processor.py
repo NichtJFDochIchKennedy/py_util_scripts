@@ -50,6 +50,15 @@ def _get_raw_docstring(function: FunctionDef | AsyncFunctionDef, source: str) ->
 
 
 def _is_ellipsis_stub(function: FunctionDef | AsyncFunctionDef) -> bool:
+    """
+    Check if the function is a stub with an ellipsis body (i.e., `def func(...):`).
+
+    Args:
+        function (FunctionDef | AsyncFunctionDef): The function definition node.
+
+    Returns:
+        bool: True if the function is a stub with an ellipsis body, False otherwise.
+    """
     body = function.body
     if len(body) == 1 and isinstance(body[0], ast.Expr):
         value = body[0].value
@@ -71,7 +80,7 @@ def check_function(function: FunctionDef | AsyncFunctionDef, verbose: bool, sour
     Returns:
         list[str]: List of mismatches found.
     """
-    mismatches = []
+    mismatches: list[str] = []
     docstring = get_docstring(function)
     if not docstring:
         if _is_ellipsis_stub(function):
@@ -107,7 +116,11 @@ def process_file(
         verbose (bool): Whether to include verbose output.
 
     Returns:
-        tuple[int, int, list, list[dict]]: function_count, mismatch_count, mismatch panels, structured issues.
+        tuple[int, int, list, list[dict]]:
+            int: Total number of functions checked.
+            int: Total number of mismatches found.
+            list: List of rich Panels containing mismatch descriptions for each function.
+            list[dict]: List of dictionaries with function name, line number, and issues for JSON output.
     """
     from rich.panel import Panel
 

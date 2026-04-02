@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from os import walk as os_walk
 from os.path import isdir, join
 from pathlib import Path
+from typing import TypedDict
 
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -12,6 +13,11 @@ from rich.panel import Panel
 from .config import CONSOLE_THEME, SKIP_DIRS
 from .formatter import fix_file
 from .processor import process_file
+
+
+class _FileEntry(TypedDict):
+    file: str
+    issues: list[dict]
 
 
 def should_skip_directory(root: str, skip_dirs: list[str]) -> bool:
@@ -55,7 +61,7 @@ def main() -> None:
     total_functions = 0
     total_mismatches = 0
     total_fixed = 0
-    all_issues = []
+    all_issues: list[_FileEntry] = []
     for directory in args.paths:
         directory = Path(directory).resolve()
         if not isdir(directory):

@@ -2,19 +2,19 @@
 Import sorter for Python files.
 
 Groups imports into four ordered sections separated by blank lines:
-1. ``__future__`` imports
-2. Standard-library imports
-3. Third-party package imports
-4. Local / project imports
+    1. ``__future__`` imports
+    2. Standard-library imports
+    3. Third-party package imports
+    4. Local / project imports
 
 Within each section packages are sorted alphabetically (``import`` statements
 before ``from … import`` statements).  Individual imported names inside
 ``from``-imports are also sorted alphabetically.
 
 Usage:
-python import_sorter.py                 # check only (exit 1 on issues)
-python import_sorter.py --fix           # auto-fix all files
-python import_sorter.py --fix source/   # auto-fix specific directory
+    python import_sorter.py                 # check only (exit 1 on issues)
+    python import_sorter.py --fix           # auto-fix all files
+    python import_sorter.py --fix source/   # auto-fix specific directory
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import importlib.metadata
 import sys
 from glob import glob
 from pathlib import Path
+from typing import Optional
 
 from colorama import Fore, init, Style
 
@@ -48,7 +49,12 @@ _init_updates: dict[tuple[str, str], set[str]] = {}
 # Helpers
 # ---------------------------------------------------------------------------
 def _third_party_packages() -> frozenset[str]:
-    """Return top-level importable names of all installed distributions."""
+    """
+    Return top-level importable names of all installed distributions.
+
+    Returns:
+        frozenset[str]: Set of top-level package names (e.g. "requests", "numpy").
+    """
     try:
         pd = importlib.metadata.packages_distributions()
         return frozenset(pd.keys())
@@ -66,7 +72,17 @@ def _third_party_packages() -> frozenset[str]:
 
 
 def _classify(module: str, level: int, third_party_pkgs: frozenset[str]) -> str:
-    """Return the group key for an import."""
+    """
+    Return the group key for an import.
+
+    Args:
+        module (str): The module being imported (e.g. "os", "requests", "myproject.utils").
+        level (int): The level of the import (0 for absolute, >0 for relative).
+        third_party_pkgs (frozenset[str]): Set of known third-party package names.
+
+    Returns:
+        str: One of "future", "stdlib", "third_party", or "local".
+    """
     if module == "__future__":
         return "future"
     if level > 0:
@@ -80,7 +96,17 @@ def _classify(module: str, level: int, third_party_pkgs: frozenset[str]) -> str:
 
 
 def _sort_key(node: ast.Import | ast.ImportFrom) -> tuple[int, str]:
-    """Sort key: ``import`` before ``from``, then alphabetically by module."""
+    """
+    Sort key: ``import`` before ``from``, then alphabetically by module.
+
+    Args:
+        node (ast.Import | ast.ImportFrom): The import node to generate a sort key for.
+
+    Returns:
+        tuple[int, str]:
+            int: 0 for ``import``, 1 for ``from``.
+            str: The module name in lowercase (e.g. "os", "requests", "myproject.utils").
+    """
     if isinstance(node, ast.Import):
         return (0, node.names[0].name.lower())
     dots = "." * (node.level or 0)
@@ -89,7 +115,16 @@ def _sort_key(node: ast.Import | ast.ImportFrom) -> tuple[int, str]:
 
 
 def _apply_path_aliases(node: ast.ImportFrom, shorten_local: bool = False) -> ast.ImportFrom:
-    """Shorten module paths according to ``PATH_ALIASES`` and optionally shorten local imports."""
+    """
+    Shorten module paths according to ``PATH_ALIASES`` and optionally shorten local imports.
+
+    Args:
+        node (ast.ImportFrom): The import node to modify in-place.
+        shorten_local (bool, optional): Whether to shorten local imports. Defaults to False.
+
+    Returns:
+    ast.ImportFrom: The modified node with updated module path.
+    """
     if node.module and node.module in PATH_ALIASES:
         node.module = PATH_ALIASES[node.module]
     elif shorten_local and node.module and "." in node.module and not (node.level or 0):
@@ -97,6 +132,7 @@ def _apply_path_aliases(node: ast.ImportFrom, shorten_local: bool = False) -> as
         parts = original_module.split(".")
         package = parts[0]
         sub_module = ".".join(parts[1:])
+
         # Track which names need to be re-exported from __init__.py
         imported_names = {alias.name for alias in node.names}
         key = (package, sub_module)
@@ -108,7 +144,17 @@ def _apply_path_aliases(node: ast.ImportFrom, shorten_local: bool = False) -> as
 
 
 def _merge_key(node: ast.ImportFrom) -> tuple[int, str]:
-    """Return a key that identifies the module a from-import refers to."""
+    """
+    Return a key that identifies the module a from-import refers to.
+
+    Args:
+        node (ast.ImportFrom): The import node to generate a merge key for.
+
+    Returns:
+        tuple[int, str]:
+            int: The level of the import (0 for absolute, >0 for relative).
+            str: The module name with dots for relative levels (e.g. "os", "requests", ".utils").
+    """
     dots = "." * (node.level or 0)
     mod = f"{dots}{node.module}" if node.module else dots
     return (node.level or 0, mod)
@@ -117,11 +163,18 @@ def _merge_key(node: ast.ImportFrom) -> tuple[int, str]:
 def _consolidate_from_imports(
     nodes: list[ast.Import | ast.ImportFrom],
 ) -> list[ast.Import | ast.ImportFrom]:
-    """Merge multiple ``from X import …`` for the same module into one node."""
+    """
+    Merge multiple ``from X import …`` for the same module into one node.
+
+    Args:
+        nodes (list[ast.Import | ast.ImportFrom]): List of import nodes to consolidate.
+
+    Returns:
+    list[ast.Import | ast.ImportFrom]: Consolidated list of import nodes.
+    """
     result: list[ast.Import | ast.ImportFrom] = []
     from_groups: dict[tuple[int, str], ast.ImportFrom] = {}
     order: list[tuple[int, str] | int] = []
-
     for idx, node in enumerate(nodes):
         if isinstance(node, ast.ImportFrom):
             _apply_path_aliases(node)
@@ -139,7 +192,6 @@ def _consolidate_from_imports(
         else:
             order.append(idx)
             result.append(node)
-
     final: list[ast.Import | ast.ImportFrom] = []
     plain_iter = iter(result)
     for entry in order:
@@ -151,7 +203,16 @@ def _consolidate_from_imports(
 
 
 def _format(node: ast.Import | ast.ImportFrom, trailing_comment: str = "") -> list[str]:
-    """Return the formatted line(s) for a single import node."""
+    """
+    Return the formatted line(s) for a single import node.
+
+    Args:
+        node (ast.Import | ast.ImportFrom): The import node to format.
+        trailing_comment (str, optional): An optional comment to append to the first line. Defaults to "".
+
+    Returns:
+        list[str]: The formatted import statement(s) as a list of lines.
+    """
     if isinstance(node, ast.Import):
         out: list[str] = []
         for alias in sorted(node.names, key=lambda a: a.name.lower()):
@@ -174,9 +235,19 @@ def _format(node: ast.Import | ast.ImportFrom, trailing_comment: str = "") -> li
 
 
 def _extract_comments(
-    lines: list[str], nodes: list[ast.Import | ast.ImportFrom],
+    lines: list[str],
+    nodes: list[ast.Import | ast.ImportFrom],
 ) -> dict[int, str]:
-    """Map ``{lineno: trailing_comment}`` from the original source lines."""
+    """
+    Map ``{lineno: trailing_comment}`` from the original source lines.
+
+    Args:
+        lines (list[str]): The original source lines.
+        nodes (list[ast.Import | ast.ImportFrom]): The import nodes to extract comments for.
+
+    Returns:
+        dict[int, str]: Mapping of line numbers to their trailing comments (including leading spaces).
+    """
     comments: dict[int, str] = {}
     for node in nodes:
         line = lines[node.lineno - 1].rstrip("\n\r")
@@ -191,16 +262,27 @@ def _find_import_segments(
     nodes: list[ast.Import | ast.ImportFrom],
     first: int,
     last: int,
-    pinned_lines: set[int] | None = None,
+    pinned_lines: Optional[set[int]] = None,
 ) -> list[tuple[str, int, int]]:
-    """Split ``[first, last]`` into ``("import", start, end)`` / ``("other", start, end)`` segments."""
+    """
+    Split ``[first, last]`` into ``("import", start, end)`` / ``("other", start, end)`` segments.
+
+    Args:
+        lines (list[str]): The original source lines.
+        nodes (list[ast.Import | ast.ImportFrom]): The import nodes to identify import lines.
+        first (int): The first line number (0-based) of the range to segment.
+        last (int): The last line number (0-based) of the range to segment.
+        pinned_lines (Optional[set[int]]): Line numbers that should be treated as "other" even if they contain imports.
+
+    Returns:
+        list[tuple[str, int, int]]: List of segments, where each segment is a tuple of (kind, start_line, end_line).
+    """
     import_lines: set[int] = set()
     for node in nodes:
         end = (node.end_lineno or node.lineno) - 1
         for i in range(node.lineno - 1, end + 1):
             if first <= i <= last and (pinned_lines is None or i not in pinned_lines):
                 import_lines.add(i)
-
     segments: list[tuple[str, int, int]] = []
     i = first
     while i <= last:
@@ -215,7 +297,16 @@ def _find_import_segments(
 def _collect_function_import_blocks(
     tree: ast.AST,
 ) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, list[ast.Import | ast.ImportFrom]]]:
-    """Collect all contiguous import blocks inside function bodies (not top-level)."""
+    """
+    Collect all contiguous import blocks inside function bodies (not top-level).
+
+    Args:
+        tree (ast.AST): The AST of the source code to analyze.
+
+    Returns:
+    list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, list[ast.Import | ast.ImportFrom]]]:
+        A list of tuples, each containing a function node and a list of import nodes.
+    """
     results: list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, list[ast.Import | ast.ImportFrom]]] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -234,10 +325,186 @@ def _collect_function_import_blocks(
 
 
 # ---------------------------------------------------------------------------
+# Unused import removal (pyflakes-based)
+# ---------------------------------------------------------------------------
+def _remove_unused_imports(src: str, lines: list[str]) -> tuple[str, list[str]]:
+    """
+    Remove unused imports (top-level and inside functions) detected by pyflakes.
+
+    Respects ``# noqa`` lines.  Returns ``(new_src, list_of_removed_keys)``.
+
+    Args:
+        src (str): The original source code.
+        lines (list[str]): The original source lines (with line breaks).
+
+    Returns:
+        tuple[str, list[str]]:
+            str: The modified source code with unused imports removed.
+            list[str]: A list of "module.name" keys for the removed imports.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return src, []
+    try:
+        from pyflakes import checker as _pyflk, messages as _pyflk_msgs
+
+    except ImportError:
+        return src, []
+    try:
+        w = _pyflk.Checker(tree)
+    except Exception:
+        return src, []
+
+    # Collect lineno -> set of "module.name" keys for unused imports
+    unused_keys_by_lineno: dict[int, set[str]] = {}
+    for msg in w.messages:
+        if isinstance(msg, _pyflk_msgs.UnusedImport):
+            unused_keys_by_lineno.setdefault(msg.lineno, set()).add(msg.message_args[0])
+    if not unused_keys_by_lineno:
+        return src, []
+
+    # Build map: lineno -> import nodes at any scope (top-level and inside functions)
+    import_nodes_by_lineno: dict[int, list[ast.Import | ast.ImportFrom]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            import_nodes_by_lineno.setdefault(node.lineno, []).append(node)
+
+    def _alias_key(node: ast.Import | ast.ImportFrom, alias: ast.alias) -> str:
+        """
+        Return the "module.name" key for an imported name.
+
+        Args:
+            node (ast.Import | ast.ImportFrom): The import node containing the alias.
+            alias (ast.alias): The alias to generate the key for.
+
+        Returns:
+            str: The "module.name" key representing the imported name (e.g. "os.path", "requests.get").
+        """
+        if isinstance(node, ast.Import):
+            if alias.asname:
+                return f"{alias.name} as {alias.asname}"
+            return alias.name
+        dots = "." * (node.level or 0)
+        mod = node.module or ""
+        full_module = f"{dots}{mod}" if mod else dots
+        full_name = f"{full_module}{alias.name}" if full_module.endswith(".") else f"{full_module}.{alias.name}"
+        if alias.asname:
+            return f"{full_name} as {alias.asname}"
+        return full_name
+
+    def _has_noqa(start_lineno: int, end_lineno: int) -> bool:
+        """
+        Check if any line in the given range has a "noqa" comment.
+
+        Args:
+            start_lineno (int): The starting line number (1-based).
+            end_lineno (int): The ending line number (1-based).
+
+        Returns:
+            bool: True if any line in the range contains "noqa", False otherwise.
+        """
+        for i in range(start_lineno - 1, end_lineno):
+            if i < len(lines) and "noqa" in lines[i]:
+                return True
+        return False
+
+    def _line_indent(lineno: int) -> str:
+        """
+        Return the leading whitespace of a source line (1-based lineno).
+
+        Args:
+            lineno (int): The line number (1-based) to get the indent for.
+
+        Returns:
+            str: The leading whitespace of the specified line, or an empty string if the line number is out of range.
+        """
+        raw = lines[lineno - 1] if lineno - 1 < len(lines) else ""
+        return raw[: len(raw) - len(raw.lstrip())]
+
+    unused_by_node: dict[int, tuple[ast.Import | ast.ImportFrom, set[str]]] = {}
+    removed_keys: list[str] = []
+    for lineno, bad_keys in unused_keys_by_lineno.items():
+        for node in import_nodes_by_lineno.get(lineno, []):
+            if _has_noqa(node.lineno, node.end_lineno or node.lineno):
+                continue
+            for alias in node.names:
+                key = _alias_key(node, alias)
+                if key in bad_keys:
+                    nid = id(node)
+                    if nid not in unused_by_node:
+                        unused_by_node[nid] = (node, set())
+                    unused_by_node[nid][1].add(alias.name)
+                    removed_keys.append(key)
+    if not unused_by_node:
+        return src, []
+
+    replacements: list[tuple[int, int, str | None]] = []
+    for nid, (node, unused_alias_names) in unused_by_node.items():
+        remaining = [a for a in node.names if a.name not in unused_alias_names]
+        s = node.lineno - 1
+        e = (node.end_lineno or node.lineno) - 1
+        if not remaining:
+            replacements.append((s, e, None))
+        else:
+            indent = _line_indent(node.lineno)
+            if isinstance(node, ast.ImportFrom):
+                dots = "." * (node.level or 0)
+                mod = node.module or ""
+                full_module = f"{dots}{mod}" if mod else dots
+                parts = [f"{a.name} as {a.asname}" if a.asname else a.name for a in remaining]
+                single = f"{indent}from {full_module} import {', '.join(parts)}"
+                new_text = (
+                    single + "\n"
+                    if len(single) <= LINE_LENGTH
+                    else (
+                        f"{indent}from {full_module} import (\n"
+                        + "".join(f"{indent}    {p},\n" for p in parts)
+                        + f"{indent})\n"
+                    )
+                )
+            else:
+                parts = [f"{a.name} as {a.asname}" if a.asname else a.name for a in remaining]
+                new_text = f"{indent}import {', '.join(parts)}\n"
+            replacements.append((s, e, new_text))
+    replacements.sort(key=lambda r: r[0], reverse=True)
+    result_lines = list(lines)
+    for s, e, replacement in replacements:
+        if replacement is None:
+            del result_lines[s : e + 1]
+        else:
+            result_lines[s : e + 1] = [replacement]
+
+    # Collapse 3+ consecutive blank lines to 2
+    final_lines: list[str] = []
+    blank_count = 0
+    for line in result_lines:
+        if not line.strip():
+            blank_count += 1
+            if blank_count <= 2:
+                final_lines.append(line)
+        else:
+            blank_count = 0
+            final_lines.append(line)
+    return "".join(final_lines), removed_keys
+
+
+# ---------------------------------------------------------------------------
 # Per-file processing
 # ---------------------------------------------------------------------------
 def _process(path: Path, third_party_pkgs: frozenset[str]) -> tuple[bool, list[str]]:
-    """Check / fix one file.  Returns ``(changed, messages)``."""
+    """
+    Check / fix one file.  Returns ``(changed, messages)``.
+
+    Args:
+        path (Path): The path to the file to process.
+        third_party_pkgs (frozenset[str]): Set of known third-party package names.
+
+    Returns:
+        tuple[bool, list[str]]:
+            bool: True if the file was modified, False otherwise.
+            list[str]: A list of messages describing any issues found or fixes applied.
+    """
     msgs: list[str] = []
     try:
         src = path.read_text(encoding="utf-8")
@@ -250,11 +517,32 @@ def _process(path: Path, third_party_pkgs: frozenset[str]) -> tuple[bool, list[s
 
     changed = False
 
+    # --- remove unused imports first ----------------------------------------
+    lines_for_unused = src.splitlines(keepends=True)
+    new_src, removed_keys = _remove_unused_imports(src, lines_for_unused)
+    if removed_keys:
+        file_abs = str(path.resolve()).replace("\\", "/")
+        msgs.append(
+            f"  {Fore.YELLOW}Unused imports in{Style.RESET_ALL} " f'{Fore.CYAN}>>> code "{file_abs}:1"{Style.RESET_ALL}'
+        )
+        for key in removed_keys:
+            msgs.append(f"    {Fore.RED}  - {key}{Style.RESET_ALL}")
+        if AUTO_FIX:
+            path.write_text(new_src, encoding="utf-8")
+            src = new_src
+            try:
+                tree = ast.parse(src)
+            except SyntaxError:
+                pass
+            msgs.append(f"    {Fore.GREEN}-> fixed{Style.RESET_ALL}")
+        changed = True
+
     # --- process top-level imports ------------------------------------------
     top_changed, top_msgs = _process_top_level(tree, src, path, third_party_pkgs)
     msgs.extend(top_msgs)
     if top_changed:
         changed = True
+
         # Re-read and re-parse after top-level fix
         if AUTO_FIX:
             src = path.read_text(encoding="utf-8")
@@ -273,14 +561,29 @@ def _process(path: Path, third_party_pkgs: frozenset[str]) -> tuple[bool, list[s
     msgs.extend(all_msgs)
     if all_changed:
         changed = True
-
     return changed, msgs
 
 
 def _process_top_level(
-    tree: ast.AST, src: str, path: Path, third_party_pkgs: frozenset[str],
+    tree: ast.AST,
+    src: str,
+    path: Path,
+    third_party_pkgs: frozenset[str],
 ) -> tuple[bool, list[str]]:
-    """Sort and consolidate top-level imports."""
+    """
+    Sort and consolidate top-level imports.
+
+    Args:
+        tree (ast.AST): The AST of the source code to process.
+        src (str): The original source code.
+        path (Path): The path to the file being processed (for messages).
+        third_party_pkgs (frozenset[str]): Set of known third-party package names.
+
+    Returns:
+        tuple[bool, list[str]]:
+            bool: True if the file was modified, False otherwise.
+            list[str]: A list of messages describing any issues found or fixes applied.
+    """
     msgs: list[str] = []
     nodes: list[ast.Import | ast.ImportFrom] = [
         n for n in ast.iter_child_nodes(tree) if isinstance(n, (ast.Import, ast.ImportFrom))
@@ -310,10 +613,7 @@ def _process_top_level(
     sortable_nodes = [n for idx, n in enumerate(nodes) if idx not in pinned_nodes]
 
     # --- extract __future__ imports for strict first-position enforcement ----
-    future_nodes = [
-        n for n in sortable_nodes
-        if isinstance(n, ast.ImportFrom) and n.module == "__future__"
-    ]
+    future_nodes = [n for n in sortable_nodes if isinstance(n, ast.ImportFrom) and n.module == "__future__"]
     non_future_sortable = [n for n in sortable_nodes if n not in future_nodes]
 
     # --- split into segments (import vs non-import code) -------------------
@@ -321,8 +621,20 @@ def _process_top_level(
 
     # --- helper: build sorted import text for a list of nodes --------------
     def _build_sorted_block(seg_nodes: list[ast.Import | ast.ImportFrom]) -> str:
+        """
+        Build a sorted import block from the given nodes, preserving comments and applying path aliases.
+
+        Args:
+            seg_nodes (list[ast.Import | ast.ImportFrom]): The import nodes to sort and format.
+
+        Returns:
+            str: The formatted import block as a string.
+        """
         groups: dict[str, list[ast.Import | ast.ImportFrom]] = {
-            "future": [], "stdlib": [], "third_party": [], "local": [],
+            "future": [],
+            "stdlib": [],
+            "third_party": [],
+            "local": [],
         }
         for node in seg_nodes:
             if isinstance(node, ast.Import) and len(node.names) > 1:
@@ -337,6 +649,7 @@ def _process_top_level(
                 mod = node.names[0].name if isinstance(node, ast.Import) else (node.module or "")
                 lvl = 0 if isinstance(node, ast.Import) else (node.level or 0)
                 grp = _classify(mod, lvl, third_party_pkgs)
+
                 # Shorten local sub-module paths to top-level package
                 if grp == "local" and isinstance(node, ast.ImportFrom):
                     _apply_path_aliases(node, shorten_local=True)
@@ -346,7 +659,6 @@ def _process_top_level(
         for key in groups:
             groups[key] = _consolidate_from_imports(groups[key])
             groups[key].sort(key=_sort_key)
-
         sections: list[str] = []
         for key in ("future", "stdlib", "third_party", "local"):
             if not groups[key]:
@@ -368,6 +680,7 @@ def _process_top_level(
     output_chunks: list[str] = []
 
     def _flush_merged() -> None:
+        """Flush the currently merged import nodes into a sorted block and clear the merge buffer."""
         if merged_nodes:
             output_chunks.append(_build_sorted_block(list(merged_nodes)))
             merged_nodes.clear()
@@ -406,15 +719,15 @@ def _process_top_level(
 
     # --- collect & consolidate TYPE_CHECKING blocks -----------------------
     tc_if_nodes: list[ast.If] = []
-    for node in ast.iter_child_nodes(tree):
-        if not isinstance(node, ast.If):
+    for child_node in ast.iter_child_nodes(tree):
+        if not isinstance(child_node, ast.If):
             continue
-        test = node.test
+        test = child_node.test
         is_tc = (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
             isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
         )
         if is_tc:
-            tc_if_nodes.append(node)
+            tc_if_nodes.append(child_node)
 
     # Scan forward from the import block to collect adjacent TC blocks
     # (allow blank lines between imports and TYPE_CHECKING)
@@ -471,7 +784,10 @@ def _process_top_level(
     # --- append consolidated TYPE_CHECKING block ---------------------------
     if tc_import_nodes or tc_other_stmts:
         tc_groups: dict[str, list[ast.Import | ast.ImportFrom]] = {
-            "future": [], "stdlib": [], "third_party": [], "local": [],
+            "future": [],
+            "stdlib": [],
+            "third_party": [],
+            "local": [],
         }
         for node in tc_import_nodes:
             if isinstance(node, ast.Import) and len(node.names) > 1:
@@ -529,18 +845,34 @@ def _process_top_level(
 
 
 def _process_function_imports(
-    tree: ast.AST, src: str, path: Path, third_party_pkgs: frozenset[str],
+    tree: ast.AST,
+    src: str,
+    path: Path,
+    third_party_pkgs: frozenset[str],
 ) -> tuple[bool, list[str]]:
-    """Sort and consolidate imports inside function bodies."""
+    """
+    Sort and consolidate imports inside function bodies.
+
+    Args:
+        tree (ast.AST): The AST of the source code to process.
+        src (str): The original source code.
+        path (Path): The path to the file being processed (for messages).
+        third_party_pkgs (frozenset[str]): Set of known third-party package names.
+
+    Returns:
+        tuple[bool, list[str]]:
+            bool: True if the file was modified, False otherwise.
+            list[str]: A list of messages describing any issues found or fixes applied.
+    """
     msgs: list[str] = []
     func_blocks = _collect_function_import_blocks(tree)
     if not func_blocks:
         return False, []
 
     lines = src.splitlines(keepends=True)
+
     # Process from bottom to top so line-number offsets remain valid.
     func_blocks.sort(key=lambda fb: fb[1][0].lineno, reverse=True)
-
     changed = False
     for func_node, imp_nodes in func_blocks:
         first = imp_nodes[0].lineno - 1
@@ -566,7 +898,10 @@ def _process_function_imports(
 
         # Group and format
         groups: dict[str, list[ast.Import | ast.ImportFrom]] = {
-            "future": [], "stdlib": [], "third_party": [], "local": [],
+            "future": [],
+            "stdlib": [],
+            "third_party": [],
+            "local": [],
         }
         for node in consolidated:
             if isinstance(node, ast.Import) and len(node.names) > 1:
@@ -579,10 +914,8 @@ def _process_function_imports(
                 mod = node.names[0].name if isinstance(node, ast.Import) else (node.module or "")
                 lvl = 0 if isinstance(node, ast.Import) else (node.level or 0)
                 groups[_classify(mod, lvl, third_party_pkgs)].append(node)
-
         for g in groups.values():
             g.sort(key=_sort_key)
-
         sections: list[str] = []
         for key in ("future", "stdlib", "third_party", "local"):
             if not groups[key]:
@@ -598,7 +931,6 @@ def _process_function_imports(
                         sec_lines.append(f"{indent}{fl}")
             sections.append("\n".join(sec_lines))
         new_block = "\n\n".join(sections) + "\n"
-
         original = "".join(lines[first : last + 1])
         if not original.endswith("\n"):
             original += "\n"
@@ -614,15 +946,24 @@ def _process_function_imports(
         if AUTO_FIX:
             lines = lines[:first] + [new_block] + lines[last + 1 :]
             msgs.append(f"    {Fore.GREEN}-> fixed{Style.RESET_ALL}")
-
     if AUTO_FIX and changed:
         path.write_text("".join(lines), encoding="utf-8")
-
     return changed, msgs
 
 
 def _sort_dunder_all(src: str, path: Path) -> tuple[bool, list[str]]:
-    """Sort ``__all__`` lists alphabetically in-place."""
+    """
+    Sort ``__all__`` lists alphabetically in-place.
+
+    Args:
+        src (str): The original source code.
+        path (Path): The path to the file being processed (for messages).
+
+    Returns:
+        tuple[bool, list[str]]:
+            bool: True if the file was modified, False otherwise.
+            list[str]: A list of messages describing any issues found or fixes applied.
+    """
     msgs: list[str] = []
     try:
         tree = ast.parse(src)
@@ -631,7 +972,6 @@ def _sort_dunder_all(src: str, path: Path) -> tuple[bool, list[str]]:
 
     lines = src.splitlines(keepends=True)
     replacements: list[tuple[int, int, str]] = []
-
     for node in ast.iter_child_nodes(tree):
         if not isinstance(node, ast.Assign):
             continue
@@ -673,9 +1013,7 @@ def _sort_dunder_all(src: str, path: Path) -> tuple[bool, list[str]]:
         else:
             inner = ",\n".join(f"{indent}    {q}" for q in quoted)
             new_text = f"{indent}__all__ = [\n{inner},\n{indent}]\n"
-
         replacements.append((first_line, last_line, new_text))
-
     if not replacements:
         return False, []
 
@@ -683,7 +1021,6 @@ def _sort_dunder_all(src: str, path: Path) -> tuple[bool, list[str]]:
     replacements.sort(key=lambda r: r[0], reverse=True)
     for first_line, last_line, new_text in replacements:
         lines[first_line : last_line + 1] = [new_text]
-
     file_abs = str(path.resolve()).replace("\\", "/")
     first_lineno = replacements[0][0] + 1
     msgs.append(
@@ -693,12 +1030,19 @@ def _sort_dunder_all(src: str, path: Path) -> tuple[bool, list[str]]:
     if AUTO_FIX:
         path.write_text("".join(lines), encoding="utf-8")
         msgs.append(f"    {Fore.GREEN}-> fixed{Style.RESET_ALL}")
-
     return True, msgs
 
 
 def _update_init_files(base_dirs: list[str]) -> list[str]:
-    """Update ``__init__.py`` files to re-export names shortened during local import consolidation."""
+    """
+    Update ``__init__.py`` files to re-export names shortened during local import consolidation.
+
+    Args:
+        base_dirs (list[str]): List of base directories to search for packages.
+
+    Returns:
+        list[str]: A list of messages describing any updates made to ``__init__.py`` files.
+    """
     msgs: list[str] = []
     if not _init_updates or not AUTO_FIX:
         return msgs
@@ -731,14 +1075,12 @@ def _update_init_files(base_dirs: list[str]) -> list[str]:
                 existing_node = node
                 for alias in node.names:
                     existing_names.add(alias.name)
-
         missing_names = sorted(names - existing_names, key=str.lower)
         if not missing_names:
             continue
 
         init_lines = init_src.splitlines(keepends=True)
         file_abs = str(init_path.resolve()).replace("\\", "/")
-
         if existing_node:
             # Add missing names to existing import line
             all_names = sorted(
@@ -763,9 +1105,8 @@ def _update_init_files(base_dirs: list[str]) -> list[str]:
             insert_at = len(init_lines)
             for i, node_i in enumerate(ast.iter_child_nodes(init_tree)):
                 if isinstance(node_i, (ast.Import, ast.ImportFrom)):
-                    insert_at = (node_i.end_lineno or node_i.lineno)
+                    insert_at = node_i.end_lineno or node_i.lineno
             init_lines.insert(insert_at, new_import + "\n")
-
         init_path.write_text("".join(init_lines), encoding="utf-8")
 
         # Update __all__ list if it exists
@@ -811,7 +1152,6 @@ def _update_init_files(base_dirs: list[str]) -> list[str]:
             f'{Fore.CYAN}>>> code "{file_abs}:1"{Style.RESET_ALL}'
         )
         msgs.append(f"    {Fore.GREEN}-> added re-exports: {', '.join(missing_names)}{Style.RESET_ALL}")
-
     _init_updates.clear()
     return msgs
 
@@ -820,7 +1160,12 @@ def _update_init_files(base_dirs: list[str]) -> list[str]:
 # Main
 # ---------------------------------------------------------------------------
 def main() -> int:
-    """Run import sorting on all Python files."""
+    """
+    Run import sorting on all Python files.
+
+    Returns:
+        int: Exit code (0 if all imports are correctly sorted or fixed, 1 if issues remain).
+    """
     third_party_pkgs = _third_party_packages()
     dirs: list[str] = [a for a in sys.argv[1:] if not a.startswith("-")]
     if not dirs:

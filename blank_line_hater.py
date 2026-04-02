@@ -2,6 +2,7 @@ import sys
 from ast import (
     AST,
     AsyncFunctionDef,
+    ClassDef,
     Constant,
     Dict,
     Expr,
@@ -17,21 +18,34 @@ from ast import (
 from collections import defaultdict
 from glob import glob
 from pathlib import Path
+from typing import TypedDict
 
 from colorama import Fore, init, Style
+
+IssueDict = TypedDict(
+    "IssueDict",
+    {
+        "function": str,
+        "line": int,
+        "file": str,
+        "type": str,
+        "reason": str,
+        "async": bool,
+    },
+)
 
 init(autoreset=True)
 
 AUTO_FIX = "--fix" in sys.argv or "--auto-fix" in sys.argv
 
 
-def apply_fixes_to_file(file_path: str, file_issues: list[dict]) -> bool:
+def apply_fixes_to_file(file_path: str, file_issues: list[IssueDict]) -> bool:
     """
     Apply all fixes to a file. Works backwards to avoid line number shifts.
 
     Args:
         file_path (str): Path to the file to fix.
-        file_issues (list[dict]): List of issues to fix, each with 'line' and 'type' keys.
+        file_issues (list[IssueDict]): List of issues to fix, each with 'line' and 'type' keys.
 
     Returns:
         bool: True if fixes were applied successfully, False otherwise.
@@ -84,8 +98,9 @@ def get_docstring_end_index(node: FunctionDef | AsyncFunctionDef) -> int:
         int: The line number where the docstring ends, or the function start line if no docstring.
     """
     if has_docstring(node):
-        docstring_const = node.body[0].value
-        return docstring_const.end_lineno
+        first = node.body[0]
+        if isinstance(first, Expr) and isinstance(first.value, Constant) and first.value.end_lineno is not None:
+            return first.value.end_lineno
     return node.lineno - 1
 
 
@@ -195,13 +210,13 @@ def collect_container_ranges(node: AST) -> set[int]:
     for child in walk(node):
         if isinstance(child, (Dict, List, Set, Tuple)):
             if hasattr(child, "lineno") and hasattr(child, "end_lineno"):
-                if child.end_lineno > child.lineno:
+                if child.lineno is not None and child.end_lineno is not None and child.end_lineno > child.lineno:
                     for ln in range(child.lineno - 1, child.end_lineno):
                         ranges.add(ln)
     return ranges
 
 
-issues = defaultdict(list)
+issues: defaultdict[str, list[IssueDict]] = defaultdict(list)
 
 for file_path in sorted(glob("**/*.py", recursive=True)):
     if "venv" in Path(file_path).parts or "__pycache__" in Path(file_path).parts or file_path.startswith("."):
@@ -214,6 +229,8 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
             if isinstance(node, (FunctionDef, AsyncFunctionDef)):
                 start = node.lineno - 1
                 end = node.end_lineno
+                if end is None:
+                    continue
                 docstring_end = get_docstring_end_index(node)
                 func_indent = get_indent_level(lines[start])
                 code_indent = func_indent + 4
@@ -231,17 +248,19 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                             import_indent = get_indent_level(lines[import_line_idx])
                             if import_indent == code_indent:
                                 imports_in_func[child.lineno] = (child, idx)
-                for child in walk(node):
-                    if isinstance(child, (Import, ImportFrom)):
-                        import_line_idx = child.lineno - 1
-                        if import_line_idx < len(lines) and child.lineno not in imports_in_func:
+                for walk_child in walk(node):
+                    if isinstance(walk_child, (Import, ImportFrom)):
+                        import_line_idx = walk_child.lineno - 1
+                        if import_line_idx < len(lines) and walk_child.lineno not in imports_in_func:
                             import_indent = get_indent_level(lines[import_line_idx])
                             if import_indent >= code_indent:
-                                imports_in_func[child.lineno] = (child, -1)
+                                imports_in_func[walk_child.lineno] = (walk_child, -1)
                 nested_body_lines = set()
-                for child in walk(node):
-                    if child is not node and isinstance(child, (FunctionDef, AsyncFunctionDef)):
-                        for ln in range(child.lineno, child.end_lineno + 1):
+                for walk_child in walk(node):
+                    if walk_child is not node and isinstance(walk_child, (FunctionDef, AsyncFunctionDef, ClassDef)):
+                        if walk_child.end_lineno is None:
+                            continue
+                        for ln in range(walk_child.lineno, walk_child.end_lineno + 1):
                             nested_body_lines.add(ln)
                 container_lines = collect_container_ranges(node)
                 # Track end lines of multi-line imports for blank-line-after-import checks
@@ -355,6 +374,9 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                         is_first_code_statement = import_body_index == first_code_index
                         # Account for multi-line imports (e.g. from X import (\n ...\n))
                         import_end_line = import_node.end_lineno  # 1-indexed last line
+                        if import_end_line is None:
+                            i += 1
+                            continue
                         import_end_idx = import_end_line - 1  # 0-indexed
                         line_before_import = i - 1
                         line_before_is_block = False
@@ -452,7 +474,7 @@ for file_path in sorted(glob("**/*.py", recursive=True)):
                                     )
                             # Last comment in block: need blank line below
                             # ONLY for section-header blocks (containing # === or # --- lines)
-                            # (unless followed by a function/class def — rule 5)
+                            # (unless followed by a function/class def - rule 5)
                             if not next_is_comment and (i + 1) < end:
                                 next_line = lines[i + 1].strip()
                                 if (

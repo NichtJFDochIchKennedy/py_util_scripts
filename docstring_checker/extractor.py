@@ -1,7 +1,7 @@
 """Extract information from function signatures and docstrings."""
 
 from ast import AsyncFunctionDef, FunctionDef, parse, unparse, walk as ast_walk
-from re import DOTALL, match, search
+from re import DOTALL, MULTILINE, match, search
 from typing import Optional
 
 
@@ -49,7 +49,7 @@ def extract_args_from_docstring(docstring: str) -> dict[str, str]:
     args: dict[str, str] = {}
     if not docstring:
         return args
-    args_section = search(r"Args:\s*(.*?)(\n\n|\Z)", docstring, DOTALL)
+    args_section = search(r"^Args:\s*(.*?)(\n\n|\Z)", docstring, DOTALL | MULTILINE)
     if args_section:
         args_text = args_section.group(1)
         lines = args_text.split("\n")
@@ -134,7 +134,9 @@ def get_functions_from_file(filepath: str) -> tuple[list[FunctionDef | AsyncFunc
         filepath (str): Path to the Python file.
 
     Returns:
-        tuple[list[FunctionDef | AsyncFunctionDef], str]: List of function definition nodes and the source text.
+        tuple[list[FunctionDef | AsyncFunctionDef], str]:
+            list[FunctionDef | AsyncFunctionDef]: List of function definition nodes.
+            str: The source code of the file.
     """
     with open(filepath, "r", encoding="utf-8") as f:
         source = f.read()

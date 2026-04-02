@@ -14,7 +14,11 @@ def count_lines_in_file(file_path: str) -> tuple[int, int, int, int]:
         file_path (str): Path to the file.
 
     Returns:
-        tuple[int, int, int, int]: Number of code lines, total lines, comment lines, and docstring lines.
+        tuple[int, int, int, int]:
+            int: Number of code lines.
+            int: Total number of lines.
+            int: Number of comment lines.
+            int: Number of docstring lines.
     """
     try:
         total_lines = 0
@@ -69,8 +73,13 @@ def count_lines_in_directory(
         directory_path (Path | str): Path to the directory.
 
     Returns:
-        tuple[int, int, int, int, dict[str, list[int]]]: Total code lines, total lines, total comment lines,
-            total docstring lines, and a dictionary with file counts.
+        tuple[int, int, int, int, dict[str, list[int]]]:
+            int: Total number of code lines in the directory.
+            int: Total number of lines in the directory.
+            int: Total number of comment lines in the directory.
+            int: Total number of docstring lines in the directory.
+            dict[str, list[int]]: A dictionary mapping file paths to their respective counts of code lines,
+            total lines, comment lines, and docstring lines.
     """
     total_lines = 0
     total_code_lines = 0
